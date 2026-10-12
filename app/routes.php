@@ -80,8 +80,6 @@ Gem::get($prefix.'/affiliate', 'Page@affiliate')->name('affiliate')->middleware(
 
 Gem::route(['GET', 'POST'], '/u/{username}', 'Link@profile')->name('profile')->middleware('CheckDomain');
 
-// Gem::get('/packed.{ext}', 'Home@packed')->name('packed')->middleware('CheckDomain');
-
 Gem::group($prefix.'/user', function(){
 
     Gem::get('/login', 'Users@login')->middleware('CheckDomain')->middleware('UserLogged')->name('login');
@@ -312,7 +310,6 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/payments/{id}/invoice','Admin\Membership@invoice')->name('admin.invoice');
     Gem::get('/payments/{id}/delete/{nonce}','Admin\Membership@delete')->name('admin.payments.delete');
     Gem::get('/payments/{id}/{action}','Admin\Membership@markAs')->name('admin.payments.markas');
-    Gem::get('/finance', 'Admin\Finance@index')->name('admin.finance');
 
     // Coupons
     Gem::get('/coupons', 'Admin\Coupons@index')->name('admin.coupons');
@@ -557,8 +554,6 @@ Gem::group(appConfig('app.apiroute'), function(){
 
     Gem::setMiddleware(['Auth@api', 'Throttle', 'CheckDomain']);
 
-    Gem::get('/', 'API\Index@index');
-
     // Account
     Gem::get('/account', 'API\Account@get')->name("api.account.get");
     Gem::put('/account/update', 'API\Account@update')->name("api.account.update");
@@ -694,17 +689,3 @@ Gem::get('/{id}/qr[/{size}]', 'Link@qr')->name('link.qr');
 Gem::get('/{id}/qr/download/{format}[/{size}]', 'Link@qrDownload')->name('link.qrDownload');
 
 Gem::route(['GET', 'POST'], '/{alias}', 'Link@redirect')->name('redirect');
-
-// Discord Bot Routes
-Gem::get('/discord/interaction', 'Discord@interaction')->name('discord.interaction');
-
-// Gem::get('/compile/1a589a9d55e6fff984', function(){
-//     \Core\View::compile([
-//          "frontend/libs/jquery/dist/jquery.min.js",
-//          "frontend/libs/bootstrap/dist/js/bootstrap.bundle.min.js",
-//          "frontend/libs/bootstrap-notify/bootstrap-notify.min.js",
-//          "frontend/libs/svg-injector/dist/svg-injector.min.js",
-//          "frontend/libs/feather-icons/dist/feather.min.js",
-//          "frontend/libs/select2/dist/js/select2.min.js",
-//     ], 'bundle.pack.js');
-// });

@@ -464,22 +464,27 @@ class QRImagick {
         }
 
         if($this->extension != 'svg'){
+            if(class_exists('\Imagick')){
+                $png = new \Imagick();
+                if($this->Qr->bgColor instanceof Alpha){
+                    $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                }
+                $png->readImageBlob($qr);
+                $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
 
-            $png = new \Imagick();
-            if($this->Qr->bgColor instanceof Alpha){
-                $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                if($this->extension == 'pdf'){
+                    $png->setImageFormat("pdf");
+                }elseif($this->extension == 'webp'){
+                    $png->setImageFormat("webp");
+                }else{
+                    $png->setImageFormat("png32");
+                }
+                $qr = $png->getImageBlob();
+            } else {
+                $fallback = new QrGd($this->Qr->data, $this->Qr->size, $this->Qr->margin);
+                $fallback->format($this->extension == 'pdf' ? 'pdf' : 'png');
+                $qr = $fallback->string();
             }
-            $png->readImageBlob($qr);
-            $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
-
-            if($this->extension == 'pdf'){
-                $png->setImageFormat("pdf");
-            }elseif($this->extension == 'webp'){
-                $png->setImageFormat("webp");
-            }else{
-                $png->setImageFormat("png32");
-            }
-            $qr = $png->getImageBlob();
         }
 
         // if($this->extension == 'pdf'){
@@ -539,16 +544,21 @@ class QRImagick {
         }
 
         if($this->extension != 'svg'){
+            if(class_exists('\Imagick')){
+                $png = new \Imagick();
+                if($this->Qr->bgColor instanceof Alpha){
+                    $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                }
+                $png->readImageBlob($qr);
+                $png->setImageFormat("png32");
+                $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
 
-            $png = new \Imagick();
-            if($this->Qr->bgColor instanceof Alpha){
-                $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                $qr = $png->getImageBlob();
+            } else {
+                $fallback = new QrGd($this->Qr->data, $this->Qr->size, $this->Qr->margin);
+                $fallback->format($this->extension == 'pdf' ? 'pdf' : 'png');
+                $qr = $fallback->string();
             }
-            $png->readImageBlob($qr);
-            $png->setImageFormat("png32");
-            $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
-
-            $qr = $png->getImageBlob();
         }
 
 

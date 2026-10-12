@@ -153,61 +153,133 @@ class QRGd {
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @param array $bg
-     * @param array $fg
-     * @return void
+     * @param array|string $fg
+     * @param array|string $bg
+     * @param string|null $frame
+     * @param string|null $eye
+     * @return $this
      */
-    public function color($fg, $bg){
+    public function color($fg, $bg, $frame = null, $eye = null){
 
-        \preg_match('|rgb\((.*)\)|', $fg, $color);
+        \preg_match('|rgb\((.*)\)|', (string) $fg, $color);
         if(isset($color[1])){
             $fgColor = \explode(',', $color[1]);
         } else {
             $fgColor = [0,0,0];
         }
 
-        \preg_match('|rgb\((.*)\)|', $bg, $color);
+        \preg_match('|rgb\((.*)\)|', (string) $bg, $color);
         if(isset($color[1])){
             $bgColor = \explode(',', $color[1]);
         } else {
-            $fgColor = [255,255,255];
+            $bgColor = [255,255,255];
         }
 
-        $this->qrCode->setForegroundColor(new Color($fgColor[0], $fgColor[1], $fgColor[2]))
-                     ->setBackgroundColor(new Color($bgColor[0], $bgColor[1], $bgColor[2]));
+        $this->qrCode->setForegroundColor(new Color((int) $fgColor[0], (int) $fgColor[1], (int) $fgColor[2]))
+                     ->setBackgroundColor(new Color((int) $bgColor[0], (int) $bgColor[1], (int) $bgColor[2]));
 
         return $this;
     }
     /**
-     * Download QR
+     * Gradient fallback
+     *
+     * @param mixed $fg
+     * @param mixed $bg
+     * @param string $type
+     * @param string|null $frame
+     * @param string|null $eye
+     * @return $this
+     */
+    public function gradient($fg, $bg, $type = 'vertical', $frame = null, $eye = null){
+        $primaryFg = is_array($fg) ? ($fg[0] ?? 'rgb(0,0,0)') : $fg;
+        return $this->color($primaryFg, $bg, $frame, $eye);
+    }
+    /**
+     * Matrix module compatibility stub
+     *
+     * @param string $matrix
+     * @return $this
+     */
+    public function module($matrix = null){
+        return $this;
+    }
+    /**
+     * Eye compatibility stub
+     *
+     * @param string $eye
+     * @param string $eyeFrame
+     * @return $this
+     */
+    public function eye($eye = null, $eyeFrame = 'square'){
+        return $this;
+    }
+    /**
+     * Frame compatibility stub
+     *
+     * @param array $frame
+     * @return $this
+     */
+    public function withFrame($frame = null){
+        return $this;
+    }
+    /**
+     * Punched logo compatibility stub
+     *
+     * @return $this
+     */
+    public function isPunched(){
+        return $this;
+    }
+    /**
+     * Get MimeType
+     *
+     * @return string
+     */
+    public function getMimeType(){
+        $mimes = [
+            'png' => 'image/png',
+            'svg' => 'image/svg+xml',
+            'pdf' => 'application/pdf',
+            'eps' => 'application/postscript',
+        ];
+        return $mimes[$this->extension ?? 'png'] ?? 'image/png';
+    }
+    /**
+     * Return QR as string without terminating execution
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @return void
+     * @return string
      */
     public function string(){
+        if(!$this->writer){
+            $this->format($this->extension ?? 'png');
+        }
         $result = $this->writer->write($this->qrCode, $this->logo);
-        echo $result->getString();
-        exit;        
+        return $result->getString();
     }
     /**
      * Return extension
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @return void
+     * @return string
      */
     public function extension(){    
-        return $this->extension;
+        return $this->extension ?? 'png';
     }
     /**
      * Generate QR
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.7
-     * @return void
+     * @return mixed
      */
     public function create($output = 'raw', $file = null){
+
+        if(!$this->writer){
+            $this->format($this->extension ?? 'png');
+        }
 
         $result = $this->writer->write($this->qrCode, $this->logo);
 

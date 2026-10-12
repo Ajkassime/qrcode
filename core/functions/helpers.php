@@ -239,8 +239,8 @@ if(!function_exists('simplePagination')){
   * @return  [type]       [description]
   */
 if(!function_exists('stop')){
-  function stop(int $code, $text = "Page not found"){
-	  GemError::trigger($code, $text);
+  function stop(?int $code = 404, $text = "Page not found"){
+	  GemError::trigger($code ?? 404, $text);
 	  exit;
   }
 }
@@ -384,7 +384,8 @@ if(!function_exists('idn_to_ascii')){
  * Shortcut to plugin
  */
 if(!function_exists('plugin')){
-  function plugin($string){
+  function plugin($name, $param = []){
+	  return \Core\Plugin::dispatch($name, $param);
   }
 }
 /**
