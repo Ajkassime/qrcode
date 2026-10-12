@@ -36,11 +36,27 @@ class Middleware {
 	 * Check if route is allowed
 	 * @author GemPixel <https://gempixel.com>
 	 * @version 6.7
-	 * @return  [type] [description]
+	 * @return  bool
 	 */
 	protected function check(Request $request){
-		foreach ($this->_exempt as $ignore) {
-			if(strpos($request->path(), str_replace("*", "", $ignore)) !== false) return false;
+		$currentPath = trim($request->path(), '/');
+
+		foreach ($this->_exempt as $pattern) {
+			$pattern = trim((string) $pattern, '/');
+			if ($pattern === '') continue;
+
+			// Exact path match
+			if ($currentPath === $pattern) {
+				return false;
+			}
+
+			// Wildcard match (e.g. api/* or webhook/*)
+			if (strpos($pattern, '*') !== false) {
+				$regex = '#^' . str_replace('\*', '.*', preg_quote($pattern, '#')) . '$#i';
+				if (preg_match($regex, $currentPath)) {
+					return false;
+				}
+			}
 		}
 
 		return true;

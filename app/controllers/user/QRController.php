@@ -1376,129 +1376,149 @@ class QR {
 
         if(!$ids || count($ids) < 1) return back()->with('danger', e('You must select at least 1 QR code.'));
 
-        $folder = STORAGE.'/app/tmp/';
+        if(!class_exists('\ZipArchive')){
+            return back()->with('danger', e('ZIP extension is not enabled on this server.'));
+        }
 
-		$session = md5(time().$user->id.Helper::rand(12));
-		
-		mkdir($folder.$session, 0777);
+        $baseTmp = STORAGE.'/app/tmp/';
+        if(!is_dir($baseTmp)){
+            @mkdir($baseTmp, 0755, true);
+        }
+
+        $session = md5(time().$user->id.Helper::rand(12));
+        $sessionDir = $baseTmp.$session;
         
-        $files = [];
-
-        foreach($ids as $id){
-            
-            if(!$qr = DB::qrs()->where('id', $id)->where('userid', Auth::user()->rID())->first()) continue;
-
-            $qr->data = json_decode($qr->data);
-
-            if($qr->urlid && $url = DB::url()->where('id', $qr->urlid)->first()){        
-                $data = ['type' => 'link', 'data' =>  \Helpers\App::shortRoute($url->domain, $url->alias.$url->custom)];
-            } else {        
-                $data = ['type' => $qr->data->type, 'data' => $qr->data->data];
-            }
-
-            $size = 1000;
-
-            $format = 'svg';
-
-            if(config('imagemagick')){
-                $format = in_array($request->format, ['webp', 'png', 'pdf']) ? $request->format : 'svg';
-            }
-
-            try {
-                
-                $margin = isset($qr->data->margin) && is_numeric($qr->data->margin) && $qr->data->margin <= 10 ? $qr->data->margin : 0;
-    
-                $data = \Helpers\QR::factory($data, $size, $margin)->format($format);
-    
-                if(\Helpers\Qr::hasImagick() && isset($qr->data->gradient)){
-                    
-                    if(isset($qr->data->eyeframecolor) && $qr->data->eyeframecolor){
-                        $qr->data->gradient[] = $qr->data->eyeframecolor;
-                    }
-    
-                    if(isset($qr->data->eyecolor) && $qr->data->eyecolor){
-                        $qr->data->gradient[] = $qr->data->eyecolor;
-                    }
-    
-                    $data->gradient(...$qr->data->gradient);
-    
-                } else {
-                    $data->color($qr->data->color->fg, $qr->data->color->bg, $qr->data->eyeframecolor ?? null, $qr->data->eyecolor ?? null);
-                }
-    
-                if(\Helpers\Qr::hasImagick() && isset($qr->data->matrix)){
-                    $data->module($qr->data->matrix);
-                }
-    
-                if(\Helpers\Qr::hasImagick() && isset($qr->data->eye)){
-                    $data->eye($qr->data->eye, $qr->data->eyeframe ?? 'square');
-                }
-    
-                if(\Helpers\Qr::hasImagick() && isset($qr->data->frame) && $user->has('qrframes')){
-                    
-                    $options = (array) $qr->data->frame;
-                    $options['bg'] = $qr->data->mode == 'gradient' ? $qr->data->gradient[1] : $qr->data->color->bg;
-                    if(in_array($qr->data->frame->font, ['Arial', 'Courier_New', 'Times_New_Roman', 'Comic_Sans_MS', 'Verdana', 'Impact', 'Tahoma'])){
-                        $options['font'] = str_replace('_', ' ', $qr->data->frame->font);
-                    }
-    
-                    $data->withFrame($options);
-                }
-                
-                $size = ($qr->data->logosize ?? 150)*$size/1000;
-    
-                if($user->has('qrlogo')){
-    
-                    if(isset($qr->data->punchedlogo) && $qr->data->punchedlogo){
-                        $data->isPunched();
-                    }
-    
-                    if(isset($qr->data->definedlogo) && $qr->data->definedlogo && $qr->data->definedlogo != 'none.png'){
-                        $data->withLogo(PUB.'/static/images/'.$qr->data->definedlogo, ($margin > 0) ? ($size - $margin*4) : $size);
-                    }  
-    
-                    if(isset($qr->data->custom) && $qr->data->custom && file_exists(View::storage($qr->data->custom, 'qr'))){
-                        $data->withLogo(View::storage($qr->data->custom, 'qr'), ($margin > 0) ? ($size - $margin*4) : $size);
-                    }
-                } else {
-                    if(config('qrlogo')){
-                        $data->withLogo(PUB.'/content/'.config('qrlogo'), ($margin > 0) ? (250 - $margin*4) : 250);
-                    }
-                }
-    
-                if(isset($qr->data->error) && in_array($qr->data->error, ['l', 'm', 'q', 'h'])){
-                    $data->errorCorrection($qr->data->error);
-                }
-                
-                $filename = 'QR-'.$qr->name.'-'.Helper::rand(5).'.'.$data->extension();
-                $files[] = $filename;
-                $qr = $data->string();
-                $fqr = fopen($folder.$session.'/'.$filename, 'w');
-                fwrite($fqr, $qr);
-                fclose($fqr);
-            } catch(\Exception $e){
-                continue;
-            }
+        if(!@mkdir($sessionDir, 0755, true)){
+            return back()->with('danger', e('Unable to create temporary directory for ZIP archive.'));
         }
         
-		$zip = new \ZipArchive();
-		$zip->open($folder.$session."/qrcodes.zip", \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        $zipFile = $sessionDir . '/qrcodes.zip';
 
-        $i = 0;
-		foreach($files as $file){
-            $filePath = $folder.$session.'/'.$file;
-            $relativePath = substr($filePath, strlen($folder.$session) + 1);
-            $zip->addFile($filePath, $relativePath);
-		}
-		$zip->close();
+        try {
+            $files = [];
 
-		header('Content-Type: application/octet-stream');
-		header("Content-Transfer-Encoding: Binary");
-		header("Content-disposition: attachment; filename=\"qrcodes.zip\"");
-		readfile($folder.$session."/qrcodes.zip");
+            foreach($ids as $id){
+                if(!$qr = DB::qrs()->where('id', $id)->where('userid', Auth::user()->rID())->first()) continue;
 
-		unlink($folder.$session."/qrcodes.zip");
+                $qr->data = json_decode($qr->data);
 
-        \Helpers\App::deleteFolder($folder.$session);        
+                if($qr->urlid && $url = DB::url()->where('id', $qr->urlid)->first()){        
+                    $data = ['type' => 'link', 'data' =>  \Helpers\App::shortRoute($url->domain, $url->alias.$url->custom)];
+                } else {        
+                    $data = ['type' => $qr->data->type, 'data' => $qr->data->data];
+                }
+
+                $size = 1000;
+                $format = 'svg';
+
+                if(config('imagemagick') && \Helpers\QR::hasImagick($request->format)){
+                    $format = in_array($request->format, ['webp', 'png', 'pdf']) ? $request->format : 'svg';
+                }
+
+                try {
+                    $margin = isset($qr->data->margin) && is_numeric($qr->data->margin) && $qr->data->margin <= 10 ? $qr->data->margin : 0;
+        
+                    $data = \Helpers\QR::factory($data, $size, $margin)->format($format);
+        
+                    if(\Helpers\Qr::hasImagick() && isset($qr->data->gradient)){
+                        if(isset($qr->data->eyeframecolor) && $qr->data->eyeframecolor){
+                            $qr->data->gradient[] = $qr->data->eyeframecolor;
+                        }
+                        if(isset($qr->data->eyecolor) && $qr->data->eyecolor){
+                            $qr->data->gradient[] = $qr->data->eyecolor;
+                        }
+                        $data->gradient(...$qr->data->gradient);
+                    } else {
+                        $data->color($qr->data->color->fg, $qr->data->color->bg, $qr->data->eyeframecolor ?? null, $qr->data->eyecolor ?? null);
+                    }
+        
+                    if(\Helpers\Qr::hasImagick() && isset($qr->data->matrix)){
+                        $data->module($qr->data->matrix);
+                    }
+        
+                    if(\Helpers\Qr::hasImagick() && isset($qr->data->eye)){
+                        $data->eye($qr->data->eye, $qr->data->eyeframe ?? 'square');
+                    }
+        
+                    if(\Helpers\Qr::hasImagick() && isset($qr->data->frame) && $user->has('qrframes')){
+                        $options = (array) $qr->data->frame;
+                        $options['bg'] = $qr->data->mode == 'gradient' ? $qr->data->gradient[1] : $qr->data->color->bg;
+                        if(in_array($qr->data->frame->font, ['Arial', 'Courier_New', 'Times_New_Roman', 'Comic_Sans_MS', 'Verdana', 'Impact', 'Tahoma'])){
+                            $options['font'] = str_replace('_', ' ', $qr->data->frame->font);
+                        }
+                        $data->withFrame($options);
+                    }
+                    
+                    $size = ($qr->data->logosize ?? 150)*$size/1000;
+        
+                    if($user->has('qrlogo')){
+                        if(isset($qr->data->punchedlogo) && $qr->data->punchedlogo){
+                            $data->isPunched();
+                        }
+                        if(isset($qr->data->definedlogo) && $qr->data->definedlogo && $qr->data->definedlogo != 'none.png'){
+                            $data->withLogo(PUB.'/static/images/'.$qr->data->definedlogo, ($margin > 0) ? ($size - $margin*4) : $size);
+                        }  
+                        if(isset($qr->data->custom) && $qr->data->custom && file_exists(View::storage($qr->data->custom, 'qr'))){
+                            $data->withLogo(View::storage($qr->data->custom, 'qr'), ($margin > 0) ? ($size - $margin*4) : $size);
+                        }
+                    } else {
+                        if(config('qrlogo')){
+                            $data->withLogo(PUB.'/content/'.config('qrlogo'), ($margin > 0) ? (250 - $margin*4) : 250);
+                        }
+                    }
+        
+                    if(isset($qr->data->error) && in_array($qr->data->error, ['l', 'm', 'q', 'h'])){
+                        $data->errorCorrection($qr->data->error);
+                    }
+                    
+                    $safeName = preg_replace('/[^a-zA-Z0-9_\-]/', '_', trim((string) $qr->name));
+                    $safeName = substr($safeName, 0, 40) ?: 'qrcode';
+                    $filename = 'QR-' . $safeName . '-' . Helper::rand(5) . '.' . $data->extension();
+                    
+                    $targetFilePath = $sessionDir . '/' . $filename;
+                    $qrString = $data->string();
+                    if($fqr = fopen($targetFilePath, 'w')){
+                        fwrite($fqr, $qrString);
+                        fclose($fqr);
+                        $files[] = $filename;
+                    }
+                } catch(\Exception $e){
+                    continue;
+                }
+            }
+
+            if(empty($files)){
+                return back()->with('danger', e('No QR code could be generated for download.'));
+            }
+            
+            $zip = new \ZipArchive();
+            if($zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true){
+                return back()->with('danger', e('Could not create ZIP archive.'));
+            }
+
+            foreach($files as $file){
+                $filePath = $sessionDir . '/' . $file;
+                if(file_exists($filePath)){
+                    $zip->addFile($filePath, $file);
+                }
+            }
+            $zip->close();
+
+            $downloadName = 'qrcodes-' . date('Y-m-d') . '.zip';
+
+            header('Content-Type: application/zip');
+            header("Content-Transfer-Encoding: Binary");
+            header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+            header('Content-Length: ' . filesize($zipFile));
+            readfile($zipFile);
+            exit;
+        } finally {
+            if(file_exists($zipFile)){
+                @unlink($zipFile);
+            }
+            if(is_dir($sessionDir)){
+                \Helpers\App::deleteFolder($sessionDir);
+            }
+        }
     }
 }
