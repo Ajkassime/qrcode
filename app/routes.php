@@ -125,10 +125,10 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/links/refresh/archive', 'User\Dashboard@refreshArchive')->name('links.refresh.archive');
     Gem::get('/links/{id}/delete/{token}', 'Link@delete')->name('links.delete');
     Gem::post('/links/deleteselected', 'Link@deleteMany')->name('links.deleteall');
-    Gem::get('/links/archiveselected', 'Link@archiveSelected')->name('links.archive');
-    Gem::get('/links/unarchiveselected', 'Link@unarchiveSelected')->name('links.unarchive');
-    Gem::get('/links/publicselected', 'Link@publicSelected')->name('links.public');
-    Gem::get('/links/privateselected', 'Link@privateSelected')->name('links.private');
+    Gem::route(['GET', 'POST'], '/links/archiveselected', 'Link@archiveSelected')->name('links.archive');
+    Gem::route(['GET', 'POST'], '/links/unarchiveselected', 'Link@unarchiveSelected')->name('links.unarchive');
+    Gem::route(['GET', 'POST'], '/links/publicselected', 'Link@publicSelected')->name('links.public');
+    Gem::route(['GET', 'POST'], '/links/privateselected', 'Link@privateSelected')->name('links.private');
     Gem::post('/links/exportselected', 'User\Export@exportSelected')->name('links.export');
     Gem::post('/links/addtocampaign', 'Link@addtocampaign')->name('links.addtocampaign');
     Gem::get('/links/{id}/edit', 'Link@edit')->name('links.edit');
@@ -217,7 +217,7 @@ Gem::group($prefix.'/user', function(){
     Gem::post('/qr/{id}/update', 'User\QR@update')->name('qr.update');
     Gem::get('/qr/{id}/delete/{nonce}', 'User\QR@delete')->name('qr.delete');
     Gem::post('/qr/deleteall', 'User\QR@deleteall')->name('qr.deleteall');
-    Gem::get('/qr/{id}/duplicate', 'User\QR@duplicate')->name('qr.duplicate');
+    Gem::route(['GET', 'POST'], '/qr/{id}/duplicate', 'User\QR@duplicate')->name('qr.duplicate');
     Gem::post('/qr/downloadall', 'User\QR@downloadall')->name('qr.downloadall');
 
     Gem::get('/qr/create/bulk', 'User\QR@createbulk')->name('qr.createbulk');
@@ -234,7 +234,7 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/bio/{id}/update/{block}/delete', 'User\Bio@deleteBlock')->name('bio.delete.block');
     Gem::get('/bio/{id}/delete/{nonce}', 'User\Bio@delete')->name('bio.delete');
     Gem::get('/bio/{id}/default', 'User\Bio@default')->name('bio.default');
-    Gem::get('/bio/{id}/duplicate', 'User\Bio@duplicate')->name('bio.duplicate');
+    Gem::route(['GET', 'POST'], '/bio/{id}/duplicate', 'User\Bio@duplicate')->name('bio.duplicate');
     Gem::get('/bio/widgetjs', 'User\Bio@widgets')->name('bio.widgetjs');    
     Gem::post('/bio/{id}/update/toggle/{i}', 'User\Bio@toggle')->name('bio.toggle');
     

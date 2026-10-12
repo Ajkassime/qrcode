@@ -68,65 +68,7 @@ class QR {
 
             $data = \Helpers\QR::factory($data, $size, $margin)->format('svg');
 
-            if(\Helpers\Qr::hasImagick() && isset($qr->data->gradient)){
-                
-                if(isset($qr->data->eyeframecolor) && $qr->data->eyeframecolor){
-                    $qr->data->gradient[] = $qr->data->eyeframecolor;
-                }
-
-                if(isset($qr->data->eyecolor) && $qr->data->eyecolor){
-                    $qr->data->gradient[] = $qr->data->eyecolor;
-                }
-
-                $data->gradient(...$qr->data->gradient);
-
-            } else {
-                $data->color($qr->data->color->fg, $qr->data->color->bg, $qr->data->eyeframecolor ?? null, $qr->data->eyecolor ?? null);
-            }
-
-            if(\Helpers\Qr::hasImagick() && isset($qr->data->matrix)){
-                $data->module($qr->data->matrix);
-            }
-
-            if(\Helpers\Qr::hasImagick() && isset($qr->data->eye)){
-                $data->eye($qr->data->eye, $qr->data->eyeframe ?? 'square');
-            }
-
-            if(\Helpers\Qr::hasImagick() && isset($qr->data->frame) && $user->has('qrframes')){
-                
-                $options = (array) $qr->data->frame;
-                $options['bg'] = $qr->data->mode == 'gradient' ? $qr->data->gradient[1] : $qr->data->color->bg;
-                if(in_array($qr->data->frame->font, ['Arial', 'Courier_New', 'Times_New_Roman', 'Comic_Sans_MS', 'Verdana', 'Impact', 'Tahoma'])){
-                    $options['font'] = str_replace('_', ' ', $qr->data->frame->font);
-                }
-
-                $data->withFrame($options);
-            }
-            
-            $size = ($qr->data->logosize ?? 150)*$size/1000;
-
-            if($user->has('qrlogo')){
-
-                if(isset($qr->data->punchedlogo) && $qr->data->punchedlogo){
-                    $data->isPunched();
-                }
-
-                if(isset($qr->data->definedlogo) && $qr->data->definedlogo && $qr->data->definedlogo != 'none.png'){
-                    $data->withLogo(PUB.'/static/images/'.$qr->data->definedlogo, ($margin > 0) ? ($size - $margin*4) : $size);
-                }  
-
-                if(isset($qr->data->custom) && $qr->data->custom && file_exists(View::storage($qr->data->custom, 'qr'))){
-                    $data->withLogo(View::storage($qr->data->custom, 'qr'), ($margin > 0) ? ($size - $margin*4) : $size);
-                }
-            } else {
-                if(config('qrlogo')){
-                    $data->withLogo(PUB.'/content/'.config('qrlogo'), ($margin > 0) ? (250 - $margin*4) : 250);
-                }
-            }
-
-            if(isset($qr->data->error) && in_array($qr->data->error, ['l', 'm', 'q', 'h'])){
-                $data->errorCorrection($qr->data->error);
-            }
+            $data = \Helpers\QR::applyDesign($data, $qr->data, $user, $size, $margin);
 
             $qr->filename = $qr->alias.time().\Core\Helper::rand(6).'.svg';
             $qr->data = json_encode($qr->data);
@@ -176,65 +118,7 @@ class QR {
 		
 		$data = \Helpers\QR::factory($data, $qrsize, $margin)->format($format);
 
-        if(\Helpers\Qr::hasImagick() && isset($qr->data->gradient)){
-                            
-            if(isset($qr->data->eyeframecolor) && $qr->data->eyeframecolor){
-                $qr->data->gradient[] = $qr->data->eyeframecolor;
-            }
-
-            if(isset($qr->data->eyecolor) && $qr->data->eyecolor){
-                $qr->data->gradient[] = $qr->data->eyecolor;
-            }
-
-            $data->gradient(...$qr->data->gradient);
-        } else {
-            $data->color($qr->data->color->fg, $qr->data->color->bg, $qr->data->eyeframecolor ?? null, $qr->data->eyecolor ?? null);
-        }
-
-        if(\Helpers\Qr::hasImagick() && isset($qr->data->matrix)){
-            $data->module($qr->data->matrix);
-        }
-
-        if(\Helpers\Qr::hasImagick() && isset($qr->data->eye)){
-            $data->eye($qr->data->eye, $qr->data->eyeframe ?? 'square');
-        }
-
-        if(\Helpers\Qr::hasImagick() && isset($qr->data->frame) && $user->has('qrframes')){
-                
-            $options = (array) $qr->data->frame;
-            $options['bg'] = $qr->data->mode == 'gradient' ? $qr->data->gradient[1] : $qr->data->color->bg;
-            if(in_array($qr->data->frame->font, ['Arial', 'Courier_New', 'Times_New_Roman', 'Comic_Sans_MS', 'Verdana', 'Impact', 'Tahoma'])){
-                $options['font'] = str_replace('_', ' ', $qr->data->frame->font);
-            }
-
-            $data->withFrame($options);
-        }    
-
-        $size = ($qr->data->logosize ?? 150)*$size/1000;
-
-        if($user->has('qrlogo')){
-
-            if(isset($qr->data->punchedlogo) && $qr->data->punchedlogo){
-                $data->isPunched();
-            }
-    
-            if(isset($qr->data->definedlogo) && $qr->data->definedlogo && $qr->data->definedlogo != 'none.png'){
-                $data->withLogo(PUB.'/static/images/'.$qr->data->definedlogo, $size);
-            }  
-
-            if(isset($qr->data->custom) && $qr->data->custom && file_exists(View::storage($qr->data->custom, 'qr'))){
-                $data->withLogo(View::storage($qr->data->custom, 'qr'), $size);
-            }
-
-        } else {
-            if(config('qrlogo')){
-                $data->withLogo(PUB.'/content/'.config('qrlogo'), ($margin > 0) ? (250 - $margin*4) : 250);
-            }
-        }
-
-        if(isset($qr->data->error) && in_array($qr->data->error, ['l', 'm', 'q', 'h'])){
-            $data->errorCorrection($qr->data->error);
-        }
+        $data = \Helpers\QR::applyDesign($data, $qr->data, $user, $qrsize, $margin);
         
 		return \Core\File::contentDownload('QR-'.$qr->name.'-'.$alias.'.'.$data->extension(), function() use ($data) {
 			return $data->string();
