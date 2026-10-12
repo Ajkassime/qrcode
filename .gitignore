@@ -3,6 +3,17 @@ config.php
 /vendor
 /storage/cache
 /storage/plugins
+/storage/app/tmp/*
+!/storage/app/tmp/.gitkeep
+
+# Ignore Uploads & Generated QR Assets in public/content
+/public/content/**/*.png
+/public/content/**/*.jpg
+/public/content/**/*.jpeg
+/public/content/**/*.svg
+/public/content/**/*.webp
+/public/content/**/*.gif
+/public/content/**/*.pdf
 
 # Ignore Files Types
 *.psd
@@ -11,9 +22,10 @@ config.php
 *.zip
 *.sql
 ._*
+.DS_Store
 
 # Ignore Dev Environment
 /.dist
 /.vscode
-/public/content/*[.png,.jpg,.jpeg,.svg]
+/.idea
 workspace.code-workspace
