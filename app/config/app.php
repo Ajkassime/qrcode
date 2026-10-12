@@ -173,6 +173,29 @@ return [
 	// 'geopath' => \Helpers\MyClass::class,
 
 	/**
+	 * Trusted Reverse Proxies
+	 * Configure IP addresses or CIDR blocks of reverse proxies (e.g. load balancers, CDN).
+	 * If empty, reverse proxy headers (X-Forwarded-For, CF-Connecting-IP, etc.) are strictly ignored.
+	 */
+	'trusted_proxies' => [
+		// Array of trusted proxy CIDRs/IPs (e.g. ['127.0.0.1', '10.0.0.0/8'])
+		'ips' => [],
+		// When true, requests from official Cloudflare IP ranges will trust CF-Connecting-IP
+		'trust_cloudflare' => false,
+	],
+
+	/**
+	 * Secondary GeoIP Provider (Optional Fallback)
+	 * Disabled by default. Only used when city is unknown and explicit API credentials are provided.
+	 */
+	'geosecondary' => [
+		'enabled' => false,
+		'provider' => 'ipinfo',
+		'api_key' => '',
+		'timeout' => 1.5,
+	],
+
+	/**
 	 * Mail Drivers
 	 * @var array
 	 */

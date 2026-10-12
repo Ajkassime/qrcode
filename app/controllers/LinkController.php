@@ -317,6 +317,11 @@ class Link {
 			}
 		}
 
+		// Optional Campaign Geo Consent Check (disabled by default, 0ms penalty if not enabled)
+		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}")){
+			return Gate::consentLocation($url, $user);
+		}
+
 		if($url->qrid){
 
 			$qr = DB::qrs()->where('id', $url->qrid)->first();
@@ -1130,5 +1135,79 @@ class Link {
 		View::set('title', e('Verify Short Link'));
 
         return View::with('verifylink', compact('request'))->extend('layouts.main');
+	}
+
+	/**
+	 * Browser Geolocation Consent Callback
+	 *
+	 * Receives visitor geolocation coordinates upon explicit consent,
+	 * securely resolves administrative boundaries, updates the stats record
+	 * with source='browser_consent', and returns JSON redirect response.
+	 *
+	 * @param \Core\Request $request
+	 * @param string $alias
+	 * @return \Core\Response
+	 */
+	public function geoConsent(Request $request, string $alias){
+		$alias = clean($alias);
+		if(!$url = DB::url()->where('alias', $alias)->orWhere('custom', $alias)->first()){
+			return (new Response(['error' => true, 'message' => 'Link not found'], 404))->json();
+		}
+
+		$request->session("geoconsent_{$url->id}", true);
+
+		// Read input coordinates
+		$body = json_decode($request->body(), true) ?? [];
+		$lat = isset($body['latitude']) ? filter_var($body['latitude'], FILTER_VALIDATE_FLOAT) : null;
+		$lon = isset($body['longitude']) ? filter_var($body['longitude'], FILTER_VALIDATE_FLOAT) : null;
+		$accuracy = isset($body['accuracy']) ? filter_var($body['accuracy'], FILTER_VALIDATE_FLOAT) : null;
+
+		if ($lat === false || $lat === null || $lon === false || $lon === null) {
+			return (new Response(['success' => true, 'redirect' => $url->url]))->json();
+		}
+
+		// Security: Validate coordinate range
+		if ($lat < -90.0 || $lat > 90.0 || $lon < -180.0 || $lon > 180.0) {
+			return (new Response(['error' => true, 'message' => 'Invalid coordinates range'], 422))->json();
+		}
+
+		$resolved = class_exists('\Helpers\GeoLocation') 
+			? \Helpers\GeoLocation::resolveCoordinates((float) $lat, (float) $lon, $accuracy !== false ? (float) $accuracy : null)
+			: ['country' => null, 'region' => null, 'city' => null, 'accuracy_radius' => null, 'source' => 'browser_consent'];
+
+		// Locate stats record to update
+		$statId = $request->session("last_stat_{$url->id}");
+		$stat = null;
+		if ($statId) {
+			$stat = DB::stats()->where('id', $statId)->first();
+		}
+
+		if (!$stat) {
+			$clientIp = appConfig('haship') ? md5(AuthToken . $request->ip()) : $request->ip();
+			$stat = DB::stats()->where('urlid', $url->id)->where('ip', $clientIp)->orderByDesc('id')->first();
+		}
+
+		if ($stat) {
+			if (!empty($resolved['city'])) {
+				$stat->city = $resolved['city'];
+			}
+			if (!empty($resolved['country'])) {
+				$stat->country = $resolved['country'];
+			}
+
+			if (class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region')) {
+				if (!empty($resolved['region'])) {
+					$stat->region = $resolved['region'];
+				}
+				$stat->geo_source = 'browser_consent';
+				if (!empty($resolved['accuracy_radius'])) {
+					$stat->accuracy_radius = $resolved['accuracy_radius'];
+				}
+			}
+
+			$stat->save();
+		}
+
+		return (new Response(['success' => true, 'redirect' => $url->url]))->json();
 	}
 }

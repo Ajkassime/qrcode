@@ -10,6 +10,7 @@ require_once __DIR__ . '/QrGenerationTest.php';
 require_once __DIR__ . '/CsrfSecurityTest.php';
 require_once __DIR__ . '/UploadSecurityTest.php';
 require_once __DIR__ . '/RoutingMiddlewareTest.php';
+require_once __DIR__ . '/GeoLocationTest.php';
 
 $results = [
     'passed' => 0,
@@ -27,6 +28,8 @@ echo "\n";
 UploadSecurityTest::run($results);
 echo "\n";
 RoutingMiddlewareTest::run($results);
+echo "\n";
+GeoLocationTest::run($results);
 echo "\n";
 
 $total = $results['passed'] + $results['failed'];

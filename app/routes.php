@@ -688,4 +688,6 @@ Gem::get('/{id}/ico', 'Link@icon')->name('link.ico');
 Gem::get('/{id}/qr[/{size}]', 'Link@qr')->name('link.qr');
 Gem::get('/{id}/qr/download/{format}[/{size}]', 'Link@qrDownload')->name('link.qrDownload');
 
+Gem::post('/geo/consent/{alias}', 'Link@geoConsent')->name('link.geoconsent');
+
 Gem::route(['GET', 'POST'], '/{alias}', 'Link@redirect')->name('redirect');

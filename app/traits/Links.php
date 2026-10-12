@@ -901,10 +901,28 @@ trait Links {
         $stats->urluserid = $url->userid;
         $stats->date = Helper::dtime();
 
-        $location = $request->country();
+        $location = class_exists('\Helpers\GeoLocation') ? \Helpers\GeoLocation::locate($request->ip()) : $request->country();
 
-        $stats->country = $location['country'];
-        $stats->city = $location['city'];
+        $stats->country = $location['country'] ?? null;
+        $stats->city = $location['city'] ?? null;
+
+        // Check if extended geo columns (region, geo_source, accuracy_radius) exist in table
+        static $hasExtendedGeoCols = null;
+        if ($hasExtendedGeoCols === null) {
+            try {
+                $table = (defined('DBprefix') ? DBprefix : '') . 'stats';
+                $cols = DB::forTable('stats')->rawQuery("SHOW COLUMNS FROM `{$table}` LIKE 'region'")->findArray();
+                $hasExtendedGeoCols = !empty($cols);
+            } catch (\Throwable $e) {
+                $hasExtendedGeoCols = false;
+            }
+        }
+
+        if ($hasExtendedGeoCols) {
+            $stats->region = $location['region'] ?? null;
+            $stats->geo_source = $location['source'] ?? null;
+            $stats->accuracy_radius = $location['accuracy_radius'] ?? null;
+        }
 
         $stats->referer = $referer;
         $stats->domain = $domain;
@@ -913,6 +931,10 @@ trait Links {
         $stats->browser = $request->browser();
         $stats->language = $request->server('http_accept_language') ? substr($request->server('http_accept_language'), 0, 2) : null;
         $stats->save();
+
+        if (is_object($request) && method_exists($request, 'session')) {
+            $request->session("last_stat_{$url->id}", $stats->id);
+        }
 
         $url->save();
 

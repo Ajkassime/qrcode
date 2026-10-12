@@ -27,6 +27,15 @@ if (!defined('AuthToken')) {
 if (!defined('EncryptionToken')) {
     define('EncryptionToken', 'test_encryption_token_for_tests_123456');
 }
+if (!defined('USECDN')) {
+    define('USECDN', false);
+}
+if (!defined('CDNASSETS')) {
+    define('CDNASSETS', null);
+}
+if (!defined('CDNUPLOADS')) {
+    define('CDNUPLOADS', null);
+}
 
 require_once CORE . "/functions/core.php";
 require_once CORE . "/GemError.class.php";

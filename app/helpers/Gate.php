@@ -103,6 +103,21 @@ class Gate {
         return View::with('gates.password')->extend('layouts.auth');
     }
     /**
+     * Browser Geolocation Consent Gate
+     *
+     * @param object $url
+     * @param object|null $user
+     * @return mixed
+     */
+    public static function consentLocation(object $url, $user = null){
+        View::set('title', e('Partager votre localisation'));
+        View::set('description', e('Cette campagne sollicite votre accord pour affiner les statistiques régionales de consultation.'));
+
+        $targetUrl = $url->url;
+
+        return View::with('gates.consent', compact('url', 'targetUrl'))->extend('layouts.auth');
+    }
+    /**
      * Direct method
      *
      * @author GemPixel <https://gempixel.com>

@@ -394,13 +394,20 @@ class Stats {
             $i++;
         }
 
-        $cities = DB::stats()
+        $hasRegion = class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region');
+
+        $query = DB::stats()
                     ->selectExpr('COUNT(id)', 'count')
                     ->selectExpr('city', 'city')
-                    ->selectExpr('country', 'country')
-                    ->where('urlid', $id)
+                    ->selectExpr('country', 'country');
+
+        if ($hasRegion) {
+            $query->selectExpr('region', 'region');
+        }
+
+        $cities = $query->where('urlid', $id)
                     ->whereRaw("(date BETWEEN '{$from}' AND '{$to}')")
-                    ->groupByExpr('city, country')
+                    ->groupByExpr($hasRegion ? 'city, region, country' : 'city, country')
                     ->orderByDesc('count')
                     ->limit(10)
                     ->findArray();
@@ -408,16 +415,32 @@ class Stats {
         foreach ($cities as $list) {
 
             $name = $list["country"] ? Helper::Country(ucwords($list["country"]), false, true) : 'unknown';
+            $cityVal = !empty($list['city']) ? trim($list['city']) : '';
+            $regionVal = !empty($list['region']) ? trim($list['region']) : '';
+            $countryVal = !empty($list['country']) ? trim($list['country']) : '';
 
-            if(empty($list["country"])) $list["country"] = e('Unknown');
-            if(empty($list["city"])) $list["city"] = e('Unknown');
+            $displayName = class_exists('\Helpers\GeoLocation')
+                ? \Helpers\GeoLocation::formatLocationName($cityVal, $regionVal, $countryVal ?: e('Unknown'))
+                : ($cityVal ? ucwords($cityVal).', '.ucwords($countryVal ?: e('Unknown')) : e('Unknown'));
 
-            $topCities[$list['city'].'-'.$name] = ['name' => ucwords($list['city']).', '.ucwords($list["country"]), 'country' => $name, 'count' => $list["count"]];
+            $key = ($cityVal ?: 'undetermined') . '-' . ($regionVal ?: 'undetermined') . '-' . $name;
+
+            $topCities[$key] = [
+                'name'    => $displayName,
+                'country' => $name,
+                'count'   => (int) $list["count"],
+                'city'    => $cityVal,
+                'region'  => $regionVal
+            ];
 
             $i++;
         }
 
-        return (new Response(['list' => $country, 'top' => $topCountries, 'cities' => $topCities]))->json();  
+        $quality = class_exists('\Helpers\GeoLocation')
+            ? \Helpers\GeoLocation::calculateQualityMetrics($cities)
+            : ['identified_city_count' => 0, 'region_only_count' => 0, 'undetermined_count' => 0, 'total' => 0, 'completeness_percent' => 0];
+
+        return (new Response(['list' => $country, 'top' => $topCountries, 'cities' => $topCities, 'quality' => $quality]))->json();  
     }
     /**
      * Get City Data
@@ -453,12 +476,19 @@ class Stats {
             return (new Response(['error' => true, 'data' => null], 500))->json();  
         }
 
-        $cities = DB::stats()
+        $hasRegion = class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region');
+
+        $query = DB::stats()
                     ->selectExpr('COUNT(id)', 'count')
-                    ->selectExpr('city', 'city')
-                    ->where('urlid', $id)
+                    ->selectExpr('city', 'city');
+
+        if ($hasRegion) {
+            $query->selectExpr('region', 'region');
+        }
+
+        $cities = $query->where('urlid', $id)
                     ->where('country', strtolower($country))
-                    ->groupByExpr('city')
+                    ->groupByExpr($hasRegion ? 'city, region' : 'city')
                     ->orderByDesc('count')
                     ->findArray();
         $response = '';
@@ -466,13 +496,24 @@ class Stats {
         if(!$cities) return (new Response(['error' => true, 'data' => null], 404))->json();  
 
         foreach($cities as $city){
+            $cityVal = !empty($city['city']) ? trim($city['city']) : '';
+            $regionVal = !empty($city['region']) ? trim($city['region']) : '';
+
+            $locationLabel = class_exists('\Helpers\GeoLocation')
+                ? \Helpers\GeoLocation::formatLocationName($cityVal, $regionVal, $country)
+                : ($cityVal ? ucfirst($cityVal).', '.$country : e('Somewhere from').' '.$country);
+
+            $badgeClass = ($cityVal !== '' && !in_array(strtolower($cityVal), ['unknown', 'inconnu']))
+                ? 'badge-success bg-success'
+                : (($regionVal !== '') ? 'badge-info bg-info' : 'badge-secondary bg-secondary');
+
             $response .= '<div class="d-flex align-items-start">                               
                             <div>
                                 <img src="'.\Helpers\App::flag(strtolower($country)).'" width="32" class="rounded" alt="'.$country.'">
-                                <span class="ms-2 ml-2">'.($city['city'] ? ucfirst($city['city']).',': e('Somewhere from')).' '.$country.'</span>                                
+                                <span class="ms-2 ml-2">'.e($locationLabel).'</span>                                
                             </div>
                             <div class="ms-auto ml-auto">
-                                <span class="badge badge-success bg-success">'.$city['count'].' '.e('Clicks').'</span>
+                                <span class="badge '.$badgeClass.'">'.$city['count'].' '.e('Clicks').'</span>
                             </div>
                         </div>          
                         <hr class="my-2">';

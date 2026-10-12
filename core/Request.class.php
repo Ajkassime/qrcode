@@ -60,6 +60,15 @@ final class Request {
 	 */
 	private $_HTTPrequest = NULL;	
 	/**
+	 * Custom trusted proxies override for runtime/testing
+	 * @var array|null
+	 */
+	protected static ?array $_customTrustedProxies = null;
+
+	public static function setTrustedProxies(?array $config): void {
+		self::$_customTrustedProxies = $config;
+	}	
+	/**
 	 * HTTP Method
 	 * @var null
 	 */
@@ -568,31 +577,112 @@ final class Request {
 		return ($this->server("HTTP_X_REQUESTED_WITH") && strcasecmp($_SERVER['HTTP_X_REQUESTED_WITH'], 'xmlhttprequest') == 0) ? true : false;
 	}
 	/**
-	 * Get Requester IP
+	 * Get Requester IP with strict reverse proxy validation
 	 * @author GemPixel <https://gempixel.com>
-	 * @version 6.2.1
+	 * @version 7.0
 	 */
-	public function ip(){
+	public function ip(): string {
+		$remoteAddr = isset($_SERVER['REMOTE_ADDR']) ? Helper::clean($_SERVER['REMOTE_ADDR'], 3, true) : '127.0.0.1';
 
-		if(isset($_SERVER['HTTP_CF_CONNECTING_IP'])) $ipaddress =  $_SERVER['HTTP_CF_CONNECTING_IP'];
-		elseif (isset($_SERVER['HTTP_X_REAL_IP'])) 	 	$ipaddress = $_SERVER['HTTP_X_REAL_IP'];
-		elseif (isset($_SERVER['HTTP_CLIENT_IP']))	 		$ipaddress = $_SERVER['HTTP_CLIENT_IP'];
-		elseif (isset($_SERVER['HTTP_X_FORWARDED_FOR']))		$ipaddress = $_SERVER['HTTP_X_FORWARDED_FOR'];
-		elseif (isset($_SERVER['HTTP_X_FORWARDED']))		$ipaddress = $_SERVER['HTTP_X_FORWARDED'];
-		elseif (isset($_SERVER['HTTP_FORWARDED_FOR'])) $ipaddress = $_SERVER['HTTP_FORWARDED_FOR'];
-		elseif (isset($_SERVER['HTTP_FORWARDED']))	$ipaddress = $_SERVER['HTTP_FORWARDED'];
-		elseif (isset($_SERVER['REMOTE_ADDR']))	$ipaddress = $_SERVER['REMOTE_ADDR'];
-
-		$ipaddress = Helper::clean($ipaddress, 3, true);
-
-		if(substr($ipaddress, 0, 7) == "::ffff:"){
-		    $ipaddress = str_replace("::ffff:", "", $ipaddress);
+		if (substr($remoteAddr, 0, 7) === '::ffff:') {
+			$remoteAddr = substr($remoteAddr, 7);
 		}
-		
-		$ip = explode(",", $ipaddress);
-		if(is_array($ip) && count($ip) > 1) return $ip[0];
 
-		return $ipaddress;
+		if (!filter_var($remoteAddr, FILTER_VALIDATE_IP)) {
+			return '127.0.0.1';
+		}
+
+		$trustedConfig = self::$_customTrustedProxies !== null ? self::$_customTrustedProxies : appConfig('app.trusted_proxies');
+		$trustedIps = is_array($trustedConfig) && isset($trustedConfig['ips']) && is_array($trustedConfig['ips']) ? $trustedConfig['ips'] : [];
+		$trustCloudflare = is_array($trustedConfig) && !empty($trustedConfig['trust_cloudflare']);
+
+		// Determine if the network peer (REMOTE_ADDR) is a trusted proxy
+		$isTrusted = false;
+		$isCloudflarePeer = false;
+
+		if ($trustCloudflare && class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::isCloudflareProxy($remoteAddr)) {
+			$isTrusted = true;
+			$isCloudflarePeer = true;
+		}
+
+		if (!$isTrusted && class_exists('\Helpers\GeoLocation')) {
+			foreach ($trustedIps as $trustedRange) {
+				if (\Helpers\GeoLocation::isIpInCidr($remoteAddr, (string) $trustedRange)) {
+					$isTrusted = true;
+					break;
+				}
+			}
+		}
+
+		// If REMOTE_ADDR is NOT a trusted proxy, strictly return REMOTE_ADDR (ignore client-controlled headers)
+		if (!$isTrusted) {
+			return $remoteAddr;
+		}
+
+		// When trusted: check Cloudflare connecting IP if peer is from Cloudflare
+		if ($isCloudflarePeer && isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+			$cfIp = trim((string) $_SERVER['HTTP_CF_CONNECTING_IP']);
+			if (substr($cfIp, 0, 7) === '::ffff:') {
+				$cfIp = substr($cfIp, 7);
+			}
+			if (filter_var($cfIp, FILTER_VALIDATE_IP)) {
+				return $cfIp;
+			}
+		}
+
+		// When trusted: inspect X-Forwarded-For chain from right to left
+		if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+			$rawXff = explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR']);
+			$chain = array_reverse(array_map('trim', $rawXff));
+
+			foreach ($chain as $candidate) {
+				if (substr($candidate, 0, 7) === '::ffff:') {
+					$candidate = substr($candidate, 7);
+				}
+				if (!filter_var($candidate, FILTER_VALIDATE_IP)) {
+					continue;
+				}
+
+				// Check if candidate is another intermediate trusted proxy
+				$isIntermediateTrusted = false;
+				if ($trustCloudflare && class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::isCloudflareProxy($candidate)) {
+					$isIntermediateTrusted = true;
+				}
+				if (!$isIntermediateTrusted && class_exists('\Helpers\GeoLocation')) {
+					foreach ($trustedIps as $trustedRange) {
+						if (\Helpers\GeoLocation::isIpInCidr($candidate, (string) $trustedRange)) {
+							$isIntermediateTrusted = true;
+							break;
+						}
+					}
+				}
+
+				if (!$isIntermediateTrusted) {
+					return $candidate;
+				}
+			}
+		}
+
+		// When trusted: check X-Real-IP
+		if (isset($_SERVER['HTTP_X_REAL_IP'])) {
+			$realIp = trim((string) $_SERVER['HTTP_X_REAL_IP']);
+			if (substr($realIp, 0, 7) === '::ffff:') {
+				$realIp = substr($realIp, 7);
+			}
+			if (filter_var($realIp, FILTER_VALIDATE_IP)) {
+				return $realIp;
+			}
+		}
+
+		return $remoteAddr;
+	}
+
+	/**
+	 * Check if current requester IP is a public IP
+	 */
+	public function isPublicIp(?string $ip = null): bool {
+		$ip = $ip ?? $this->ip();
+		return class_exists('\Helpers\GeoLocation') ? \Helpers\GeoLocation::isPublicIp($ip) : (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false);
 	}
 	/**
 	 * Current User Agent
@@ -702,36 +792,55 @@ final class Request {
 	public function country($ip = null){		
 		$ip = $ip ?? $this->ip();
 
-		if(appConfig('app.geodriver') == 'api'){
+		if(appConfig('app.geodriver') == 'custom'){
+			return \call_user_func_array(appConfig('app.geopath'), [$ip]);
+		}
 
+		if(class_exists('\Helpers\GeoLocation')){
+			$geo = \Helpers\GeoLocation::locate($ip);
+			return [
+				'city'            => $geo['city'] ?? '',
+				'state'           => $geo['region'] ?? '',
+				'region'          => $geo['region'] ?? '',
+				'country'         => $geo['country'] ?? '',
+				'country_code'    => $geo['country_code'] ?? '',
+				'accuracy_radius' => $geo['accuracy_radius'] ?? null,
+				'source'          => $geo['source'] ?? 'unknown',
+				'precision'       => $geo['precision'] ?? 'unknown',
+			];
+		}
+
+		if(appConfig('app.geodriver') == 'api'){
 			$url = str_replace('{IP}', $ip, appConfig('app.geopath'));
 			$response = Http::url($url)->get()->bodyObject();
 			return ['city' => $response->city, 'country' => $response->country_name];
 		}
 
-		if(appConfig('app.geodriver') == 'maxmind'){
-			$geopath = appConfig('app.geopath');
-			if(empty($geopath) || !file_exists($geopath)){
-				return ['city' => null, 'state' => null, 'country' => null];
-			}
-			try{
-				$reader = new \MaxMind\Db\Reader($geopath);
-				$response = $reader->get($ip);
-				$reader->close();
-				
-				if(isset($response['country']['names']['en']) && $response['country']['names']['en'] == 'Türkiye') $response['country']['names']['en'] = 'Turkey';
-
-				return ['city' => $response['city']['names']['en'] ?? '', 'state' => $response['subdivisions'][0]['names']['en'] ?? '', 'country' => $response['country']['names']['en'] ?? ''];				
+		$geopath = appConfig('app.geopath');
+		if(empty($geopath) || !file_exists($geopath)){
+			return ['city' => null, 'state' => null, 'country' => null];
+		}
+		try{
+			$reader = new \MaxMind\Db\Reader($geopath);
+			$response = $reader->get($ip);
+			$reader->close();
 			
-			} catch(\Exception $e){
-				\GemError::log('IP Error: '.$e->getMessage(), ['ip' => $ip]);
-				return ['city' => null, 'state' => null, 'country' => null];
-			}
-		}
+			if(isset($response['country']['names']['en']) && $response['country']['names']['en'] == 'Türkiye') $response['country']['names']['en'] = 'Turkey';
 
-		if(appConfig('app.geodriver') == 'custom'){
-			return \call_user_func_array(appConfig('app.geopath'), [$ip]);
+			return ['city' => $response['city']['names']['en'] ?? '', 'state' => $response['subdivisions'][0]['names']['en'] ?? '', 'country' => $response['country']['names']['en'] ?? ''];				
+		
+		} catch(\Exception $e){
+			\GemError::log('IP Error: '.$e->getMessage(), ['ip' => $ip]);
+			return ['city' => null, 'state' => null, 'country' => null];
 		}
+	}
+
+	/**
+	 * Full Geographic Resolution
+	 */
+	public function geo(?string $ip = null): array {
+		$ip = $ip ?? $this->ip();
+		return class_exists('\Helpers\GeoLocation') ? \Helpers\GeoLocation::locate($ip) : $this->country($ip);
 	}
 	/**
    * Read/Write Cookie
