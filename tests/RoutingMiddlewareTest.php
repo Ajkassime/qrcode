@@ -85,57 +85,64 @@ class RoutingMiddlewareTest {
 
         $routes = \Gem::getRoutes();
 
-        // 1. Archive selected route
-        $archiveRoute = $routes['links.archive'] ?? null;
-        self::assert(
-            $archiveRoute !== null && in_array('POST', (array) $archiveRoute['method']),
-            "Archive selected route is registered and accepts POST method",
-            $results
-        );
-        self::assert(
-            $archiveRoute !== null && in_array('CSRF', (array) ($archiveRoute['middleware'] ?? [])),
-            "Archive selected route has CSRF middleware applied",
-            $results
-        );
+        // Build FastRoute dispatcher to test real routing resolution and method enforcement
+        $dispatcher = \FastRoute\simpleDispatcher(function(\FastRoute\RouteCollector $r) use ($routes) {
+            foreach ($routes as $name => $data) {
+                $r->addRoute($data["method"], $data["path"], $name);
+            }
+        });
 
-        // 2. Unarchive selected route
-        $unarchiveRoute = $routes['links.unarchive'] ?? null;
-        self::assert(
-            $unarchiveRoute !== null && in_array('POST', (array) $unarchiveRoute['method']),
-            "Unarchive selected route is registered and accepts POST method",
-            $results
-        );
-        self::assert(
-            $unarchiveRoute !== null && in_array('CSRF', (array) ($unarchiveRoute['middleware'] ?? [])),
-            "Unarchive selected route has CSRF middleware applied",
-            $results
-        );
+        $mutatingActionNames = [
+            'links.archive',
+            'links.unarchive',
+            'links.public',
+            'links.private',
+            'qr.duplicate',
+            'bio.duplicate',
+        ];
 
-        // 3. QR duplicate route
-        $qrDupRoute = $routes['qr.duplicate'] ?? null;
-        self::assert(
-            $qrDupRoute !== null && in_array('POST', (array) $qrDupRoute['method']),
-            "QR duplicate route is registered and accepts POST method",
-            $results
-        );
-        self::assert(
-            $qrDupRoute !== null && in_array('CSRF', (array) ($qrDupRoute['middleware'] ?? [])),
-            "QR duplicate route has CSRF middleware applied",
-            $results
-        );
+        foreach ($mutatingActionNames as $name) {
+            $route = $routes[$name] ?? null;
 
-        // 4. Bio duplicate route
-        $bioDupRoute = $routes['bio.duplicate'] ?? null;
-        self::assert(
-            $bioDupRoute !== null && in_array('POST', (array) $bioDupRoute['method']),
-            "Bio duplicate route is registered and accepts POST method",
-            $results
-        );
-        self::assert(
-            $bioDupRoute !== null && in_array('CSRF', (array) ($bioDupRoute['middleware'] ?? [])),
-            "Bio duplicate route has CSRF middleware applied",
-            $results
-        );
+            // 1. Must be registered and accept POST
+            self::assert(
+                $route !== null && in_array('POST', (array) $route['method']),
+                "Route '{$name}' is registered and accepts POST method",
+                $results
+            );
+
+            // 2. Must strictly NOT accept GET
+            self::assert(
+                $route !== null && !in_array('GET', (array) $route['method']),
+                "Route '{$name}' strictly refuses GET method",
+                $results
+            );
+
+            // 3. Must enforce CSRF middleware
+            self::assert(
+                $route !== null && in_array('CSRF', (array) ($route['middleware'] ?? [])),
+                "Route '{$name}' has CSRF middleware applied",
+                $results
+            );
+
+            $testPath = str_replace('{id}', '123', $route['path'] ?? '');
+
+            // 4. Dispatching POST must succeed (FOUND)
+            $postDispatch = $dispatcher->dispatch('POST', $testPath);
+            self::assert(
+                $postDispatch[0] === \FastRoute\Dispatcher::FOUND && $postDispatch[1] === $name,
+                "Router successfully matches POST {$testPath} to '{$name}'",
+                $results
+            );
+
+            // 5. Dispatching GET must be rejected with METHOD_NOT_ALLOWED (405)
+            $getDispatch = $dispatcher->dispatch('GET', $testPath);
+            self::assert(
+                $getDispatch[0] === \FastRoute\Dispatcher::METHOD_NOT_ALLOWED,
+                "Router rejects GET {$testPath} with METHOD_NOT_ALLOWED (405)",
+                $results
+            );
+        }
     }
 
     public static function testNonRegressionCoreRoutes(&$results) {

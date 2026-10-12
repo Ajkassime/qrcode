@@ -47,6 +47,8 @@ class Setup {
      */
     public static function check(){
 
+        if(defined('_STATE') && _STATE === 'TEST') return true;
+
         if(file_exists(ROOT."/config.php")) return true;
 
         new self();

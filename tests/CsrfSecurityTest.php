@@ -115,9 +115,8 @@ class CsrfSecurityTest {
 
         $csrf = new \Middleware\CSRF();
         $ref = new \ReflectionClass(\Middleware\CSRF::class);
-        if (PHP_VERSION_ID < 80100) {
-            $prop->setAccessible(true);
-        }
+        $prop = $ref->getProperty('_exempt');
+        $prop->setAccessible(true);
         $exemptions = $prop->getValue($csrf);
 
         // Ensure broad 'user/bio/' exemption does not exist in real CSRF class

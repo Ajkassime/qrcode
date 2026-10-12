@@ -39,4 +39,13 @@ jobs:
           echo "PHP Lint passed on all source files."
 
       - name: Run Test Suite
-        run: php tests/run_tests.php
+        run: |
+          php tests/run_tests.php | tee test_run.log
+          if ! grep -q "TEST RESULTS SUMMARY:" test_run.log; then
+            echo "ERROR: Test results summary was not found in test output!"
+            exit 1
+          fi
+          if grep -q "FAILED:" test_run.log || ! grep -q "SUCCESS: All tests passed cleanly!" test_run.log; then
+            echo "ERROR: Test suite execution failed!"
+            exit 1
+          fi

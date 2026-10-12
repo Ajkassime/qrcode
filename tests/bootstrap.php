@@ -43,7 +43,11 @@ if (!isset($_SERVER['REQUEST_URI'])) {
     $_SERVER['REQUEST_URI'] = '/';
 }
 
-Gem::preload();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+Gem::$App['appConfig']['boot'] = [];
 
 // Initialize minimal test configuration without requiring MySQL
 if (!isset(Gem::$Config) || !is_object(Gem::$Config)) {
