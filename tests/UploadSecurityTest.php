@@ -27,27 +27,28 @@ class UploadSecurityTest {
         $dangerous = ['php', 'phtml', 'phar', 'php5', 'php7', 'exe', 'sh', 'bash', 'pl', 'cgi'];
 
         foreach ($dangerous as $ext) {
-            $fakeFile = [
+            $tmpFile = tempnam(sys_get_temp_dir(), 'test_');
+            file_put_contents($tmpFile, '<?php echo "evil"; ?>');
+
+            $_FILES['test_file'] = [
                 'name' => "exploit.{$ext}",
                 'type' => 'text/plain',
-                'tmp_name' => tempnam(sys_get_temp_dir(), 'test_'),
+                'tmp_name' => $tmpFile,
                 'error' => 0,
                 'size' => 100,
             ];
 
-            file_put_contents($fakeFile['tmp_name'], '<?php echo "evil"; ?>');
-
+            // Instantiate Request AFTER $_FILES is populated so catchFile() processes it
             $request = new \Core\Request();
-            $_FILES['test_file'] = $fakeFile;
             $uploaded = $request->file('test_file');
 
             self::assert(
-                $uploaded === false || !is_object($uploaded) || $uploaded->mimematch === false,
-                "Dangerous extension '.{$ext}' is rejected or flags mime mismatch",
+                is_object($uploaded) && $uploaded->allowed === false && $uploaded->isvalid === false,
+                "Dangerous extension '.{$ext}' is strictly rejected by Request (allowed=false, isvalid=false)",
                 $results
             );
 
-            @unlink($fakeFile['tmp_name']);
+            @unlink($tmpFile);
             unset($_FILES['test_file']);
         }
     }
@@ -63,12 +64,28 @@ class UploadSecurityTest {
         ];
 
         foreach ($maliciousNames as $input => $expectedSuffix) {
-            $sanitized = preg_replace('/[^\w\.\-\_]/', '', basename(str_replace(['\\', "\0"], ['/', ''], $input)));
+            $tmpFile = tempnam(sys_get_temp_dir(), 'test_name_');
+            file_put_contents($tmpFile, 'PNG_DUMMY_DATA');
+
+            $_FILES['test_file'] = [
+                'name' => $input,
+                'type' => 'image/png',
+                'tmp_name' => $tmpFile,
+                'error' => 0,
+                'size' => 14,
+            ];
+
+            $request = new \Core\Request();
+            $uploaded = $request->file('test_file');
+
             self::assert(
-                strpos($sanitized, '..') === false,
-                "Sanitized filename '{$input}' contains no directory traversal sequences ('{$sanitized}')",
+                is_object($uploaded) && strpos($uploaded->name, '..') === false && strpos($uploaded->name, "\0") === false,
+                "Request sanitizes filename '{$input}' preventing directory traversal ('{$uploaded->name}')",
                 $results
             );
+
+            @unlink($tmpFile);
+            unset($_FILES['test_file']);
         }
     }
 
@@ -82,17 +99,16 @@ class UploadSecurityTest {
 
         $uniqueDir = $tempBase . '/test_run_' . bin2hex(random_bytes(8));
         mkdir($uniqueDir, 0755, true);
-        file_put_contents($uniqueDir . '/sample.txt', 'test content');
+        file_put_contents($uniqueDir . '/sample1.txt', 'test content 1');
+        file_put_contents($uniqueDir . '/sample2.txt', 'test content 2');
+        mkdir($uniqueDir . '/nested', 0755, true);
+        file_put_contents($uniqueDir . '/nested/sample3.txt', 'test content 3');
 
-        self::assert(is_dir($uniqueDir), "Test directory created successfully", $results);
+        self::assert(is_dir($uniqueDir), "Test directory created successfully with nested contents", $results);
 
-        // Mimic the cleanup routine in QRController::downloadall
-        $files = glob($uniqueDir . '/*');
-        foreach ($files as $file) {
-            if (is_file($file)) unlink($file);
-        }
-        rmdir($uniqueDir);
+        // Run the real cleanup routine used in App::deleteFolder
+        \Helpers\App::deleteFolder($uniqueDir);
 
-        self::assert(!file_exists($uniqueDir), "Temporary directory fully removed after cleanup routine", $results);
+        self::assert(!file_exists($uniqueDir), "Temporary directory and all nested files fully removed after cleanup routine", $results);
     }
 }

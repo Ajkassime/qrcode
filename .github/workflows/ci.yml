@@ -21,11 +21,14 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
-          extensions: mbstring, json, gd, curl, openssl, ctype, iconv, zlib, fileinfo
+          extensions: mbstring, json, gd, curl, openssl, ctype, iconv, zlib, fileinfo, zip
           coverage: none
 
       - name: Validate composer.json
         run: composer validate
+
+      - name: Install Composer Dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Check Platform Requirements
         run: composer check-platform-reqs

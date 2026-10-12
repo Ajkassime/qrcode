@@ -9,6 +9,7 @@ class CsrfSecurityTest {
         self::testTokenGenerationAndValidation($results);
         self::testConstantTimeValidation($results);
         self::testHeaderTokenSupport($results);
+        self::testRealCsrfMiddlewareExecution($results);
         self::testWebhookExemptionSecurity($results);
     }
 
@@ -65,22 +66,63 @@ class CsrfSecurityTest {
         unset($_SERVER['HTTP_X_CSRF_TOKEN']);
     }
 
+    public static function testRealCsrfMiddlewareExecution(&$results) {
+        echo "Running CsrfSecurityTest::testRealCsrfMiddlewareExecution...\n";
+
+        $csrf = new \Middleware\CSRF();
+
+        // 1. GET requests must ALWAYS pass without requiring a CSRF token
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/';
+        $requestGet = new \Core\Request();
+        self::assert($csrf->handle($requestGet) === true, "CSRF::handle allows GET on homepage without token", $results);
+
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/my-short-link';
+        $requestAlias = new \Core\Request();
+        self::assert($csrf->handle($requestAlias) === true, "CSRF::handle allows GET on /{alias} without token", $results);
+
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/u/testuser';
+        $requestProfile = new \Core\Request();
+        self::assert($csrf->handle($requestProfile) === true, "CSRF::handle allows GET on public profile without token", $results);
+
+        // 2. Exempt POST routes must pass without token
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI'] = '/webhook/stripe';
+        $requestWebhook = new \Core\Request();
+        self::assert($csrf->handle($requestWebhook) === true, "CSRF::handle allows POST on /webhook/stripe without token", $results);
+
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI'] = '/api/v1/user';
+        $requestApi = new \Core\Request();
+        self::assert($csrf->handle($requestApi) === true, "CSRF::handle allows POST on /api/* without token", $results);
+
+        // 3. POST mutation with valid session token must pass
+        $validToken = bin2hex(random_bytes(32));
+        $_SESSION[\Core\Helper::CSRFNAME] = $validToken;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI'] = '/user/settings';
+        $_REQUEST['_token'] = $validToken;
+        $requestValidPost = new \Core\Request();
+        self::assert($csrf->handle($requestValidPost) === true, "CSRF::handle allows POST with matching session _token", $results);
+
+        unset($_REQUEST['_token']);
+    }
+
     public static function testWebhookExemptionSecurity(&$results) {
         echo "Running CsrfSecurityTest::testWebhookExemptionSecurity...\n";
 
-        $exemptions = [
-            'webhook/*',
-            'api/*',
-            'user/login/auth',
-        ];
+        $csrf = new \Middleware\CSRF();
+        $ref = new \ReflectionClass(\Middleware\CSRF::class);
+        if (PHP_VERSION_ID < 80100) {
+            $prop->setAccessible(true);
+        }
+        $exemptions = $prop->getValue($csrf);
 
-        // Ensure broad 'user/bio/' exemption does not exist
-        self::assert(!in_array('user/bio/', $exemptions), "Broad 'user/bio/' path is not exempted from CSRF", $results);
-
-        // Test wildcard matching logic from Middleware
-        $pattern = '#^webhook/.*$#i';
-        self::assert(preg_match($pattern, 'webhook/stripe') === 1, "Webhook pattern allows webhook/stripe", $results);
-        self::assert(preg_match($pattern, 'webhook/paypal') === 1, "Webhook pattern allows webhook/paypal", $results);
-        self::assert(preg_match($pattern, 'user/bio/delete') === 0, "Webhook pattern does not match user/bio paths", $results);
+        // Ensure broad 'user/bio/' exemption does not exist in real CSRF class
+        self::assert(!in_array('user/bio/', $exemptions) && !in_array('user/bio/*', $exemptions), "Broad 'user/bio/' path is absent from real CSRF _exempt property", $results);
+        self::assert(in_array('webhook/*', $exemptions), "Real CSRF middleware explicitly exempts 'webhook/*'", $results);
+        self::assert(in_array('api/*', $exemptions), "Real CSRF middleware explicitly exempts 'api/*'", $results);
     }
 }

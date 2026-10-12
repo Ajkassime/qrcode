@@ -224,7 +224,9 @@ final class Request {
 							if(function_exists('finfo_open')){
 								$finfo = finfo_open(FILEINFO_MIME_TYPE);
 								$realMime = finfo_file($finfo, $tmpLocation) ?: null;
-								finfo_close($finfo);
+								if(PHP_VERSION_ID < 80500 && function_exists('finfo_close')){
+									finfo_close($finfo);
+								}
 							} elseif(function_exists('mime_content_type')){
 								$realMime = mime_content_type($tmpLocation) ?: null;
 							}
@@ -268,7 +270,9 @@ final class Request {
 						if(function_exists('finfo_open')){
 							$finfo = finfo_open(FILEINFO_MIME_TYPE);
 							$realMime = finfo_file($finfo, $tmpLocation) ?: null;
-							finfo_close($finfo);
+							if(PHP_VERSION_ID < 80500 && function_exists('finfo_close')){
+								finfo_close($finfo);
+							}
 						} elseif(function_exists('mime_content_type')){
 							$realMime = mime_content_type($tmpLocation) ?: null;
 						}
@@ -527,6 +531,13 @@ final class Request {
 	 */
 	public function http(){
 		return $this->isSecure() ? "https" : "http";
+	}
+	/**
+	 * Return HTTP request method (e.g. GET, POST, PUT, DELETE, PATCH)
+	 * @return string
+	 */
+	public function method(): string {
+		return strtoupper((string) ($this->_HTTPmethod ?? ($_SERVER['REQUEST_METHOD'] ?? 'GET')));
 	}
 	/**
 	 * Is Secure

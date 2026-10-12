@@ -576,4 +576,12 @@ class Gem {
             unset($middlewareClass, $middlewareMethod);
         }
     }
+    /**
+     * Get all registered routes
+     *
+     * @return array
+     */
+    public static function getRoutes(): array {
+        return self::$controllers;
+    }
 }

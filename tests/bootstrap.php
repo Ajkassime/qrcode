@@ -33,6 +33,16 @@ require_once CORE . "/GemError.class.php";
 require_once LIBRARY . "/autoload.php";
 require_once CORE . "/Gem.class.php";
 
+if (!isset($_SERVER['HTTP_HOST'])) {
+    $_SERVER['HTTP_HOST'] = 'localhost';
+}
+if (!isset($_SERVER['REQUEST_METHOD'])) {
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+}
+if (!isset($_SERVER['REQUEST_URI'])) {
+    $_SERVER['REQUEST_URI'] = '/';
+}
+
 Gem::preload();
 
 // Initialize minimal test configuration without requiring MySQL

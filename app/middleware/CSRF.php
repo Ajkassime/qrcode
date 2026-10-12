@@ -41,6 +41,11 @@ final class CSRF extends Middleware {
 	 */
 	public function handle(Request $request) {
 
+		// Safe HTTP methods without side effects must never be blocked by CSRF
+		if(in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)){
+			return true;
+		}
+
 		// @group Plugin
 		$exempts = \Core\Plugin::dispatch('middleware.csrf.exempt');
 

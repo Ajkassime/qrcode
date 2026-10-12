@@ -70,7 +70,8 @@ class GemError {
 		if($type == "error") error_log($error);
 		if(empty($error)) return null;
 		if(isset($_SERVER["REQUEST_URI"])){
-			$error .= " -> http://".$_SERVER["HTTP_HOST"].$_SERVER["REQUEST_URI"];
+			$host = $_SERVER["HTTP_HOST"] ?? "localhost";
+			$error .= " -> http://".$host.$_SERVER["REQUEST_URI"];
 		}
 		if(!isset(self::$logger[$channel]) && $channel == "system") self::logger();
 		if(!isset(self::$logger[$channel])) self::channel($channel);

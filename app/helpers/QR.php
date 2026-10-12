@@ -115,15 +115,15 @@ class QR {
      * @param object $data QrImagick or QrGd instance
      * @param object|array $qrData Decoded QR design data
      * @param object|null $user User model for permissions
-     * @param int $margin Margin
      * @param int $size Base size
+     * @param int $margin Margin
      * @return object
      */
-    public static function applyDesign($data, $qrData, $user = null, $margin = 0, $size = 1000){
+    public static function applyDesign($data, $qrData, $user = null, $size = 1000, $margin = 0){
         $qrData = (object) $qrData;
 
         // Gradient or solid colors
-        if(self::hasImagick() && isset($qrData->gradient) && !empty($qrData->gradient)){
+        if(($data instanceof QrImagick || self::hasImagick()) && isset($qrData->gradient) && !empty($qrData->gradient)){
             $gradient = (array) $qrData->gradient;
             if(isset($qrData->eyeframecolor) && $qrData->eyeframecolor){
                 $gradient[] = $qrData->eyeframecolor;
