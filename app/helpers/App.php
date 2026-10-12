@@ -1117,6 +1117,8 @@ final class App {
      */
     public static function checkEncryption(){
 
+        if(!defined('EncryptionToken') || !file_exists(ROOT.'/config.php')) return;
+
         if(EncryptionToken == null){
             $file = file_get_contents(ROOT.'/config.php');
 

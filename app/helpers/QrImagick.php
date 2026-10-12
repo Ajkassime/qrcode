@@ -571,7 +571,11 @@ class QRImagick {
 
         if($output == 'uri') return 'data:'.$this->getMimeType().';base64,'.base64_encode($qr);
 
-        header('Content-Type: '.$this->getMimeType());
+        if($output == 'raw') return $qr;
+
+        if(!headers_sent()){
+            header('Content-Type: '.$this->getMimeType());
+        }
         echo $qr;
         exit;
     }

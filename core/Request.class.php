@@ -121,7 +121,7 @@ final class Request {
 	public function __construct(){
 		
 		
-		$this->_HTTPmethod = Helper::clean($_SERVER['REQUEST_METHOD'], 3, true);
+		$this->_HTTPmethod = isset($_SERVER['REQUEST_METHOD']) ? Helper::clean($_SERVER['REQUEST_METHOD'], 3, true) : 'GET';
 
 		if(!in_array($this->_HTTPmethod, ["GET", "POST", "PUT", "DELETE","PATCH"])) return false;
 
@@ -481,7 +481,7 @@ final class Request {
 	 * @return void
 	 */
 	public function path($withquery = false){
-		$path = rawurldecode(trim(rtrim($this->server("REQUEST_URI"), "/"), "/"));
+		$path = rawurldecode(trim(rtrim((string) $this->server("REQUEST_URI"), "/"), "/"));
 		$base = trim(str_replace('/public/index.php', '', $this->server('PHP_SELF')), '/');
 		$path = trim(preg_replace("~$base~", '', $path, 1), '/');		
 

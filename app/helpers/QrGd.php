@@ -294,7 +294,13 @@ class QRGd {
             return $result->getDataUri();            
         }
 
-        header('Content-Type: '.$result->getMimeType());
+        if($output == 'raw'){
+            return $result->getString();
+        }
+
+        if(!headers_sent()){
+            header('Content-Type: '.$result->getMimeType());
+        }
         echo $result->getString();
         exit;
     }    
