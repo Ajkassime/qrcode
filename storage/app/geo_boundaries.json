@@ -1,575 +1,216 @@
 {
-  "version": "2.0.0",
-  "description": "Worldwide & Administrative Polygon Boundaries (ISO 3166-1 / ISO 3166-2)",
-  "countries": [
+  "version": "3.0.0",
+  "authoritative_polygons": false,
+  "license": "CC0-1.0 / ISO-3166 Reference Metadata",
+  "description": "Administrative Subdivision Reference Registry (ISO 3166-1 / Unique Madagascar 23-Region Codes). Approximate rectangular polygons have been removed and are never used to assign cities or regions in production. Coordinate resolution requires a configured reverse geocoding provider or an external authoritative multi-vertex GeoJSON boundary dataset.",
+  "madagascar_regions": [
     {
-      "country": "Madagascar",
-      "country_code": "MG",
-      "continent": "Africa",
-      "continent_code": "AF",
-      "bbox": [-25.65, 43.15, -11.90, 50.55],
-      "polygon": [
-        [49.25, -11.95], [50.52, -15.20], [49.95, -17.00], [49.45, -18.15],
-        [48.35, -21.25], [47.05, -25.05], [45.10, -25.60], [43.65, -23.35],
-        [43.20, -21.95], [44.25, -20.25], [43.95, -18.05], [44.50, -16.20],
-        [46.30, -15.70], [47.95, -13.30], [49.25, -11.95]
-      ],
-      "regions": [
-        {
-          "name": "Analamanga",
-          "code": "MG-T",
-          "polygon": [[46.95, -19.35], [48.05, -19.35], [48.05, -17.90], [46.95, -17.90], [46.95, -19.35]],
-          "cities": [
-            {
-              "name": "Antananarivo",
-              "polygon": [[47.42, -19.02], [47.62, -19.02], [47.62, -18.78], [47.42, -18.78], [47.42, -19.02]]
-            }
-          ]
-        },
-        {
-          "name": "Vakinankaratra",
-          "code": "MG-T",
-          "polygon": [[46.15, -20.25], [47.55, -20.25], [47.55, -19.35], [46.15, -19.35], [46.15, -20.25]],
-          "cities": [
-            {
-              "name": "Antsirabe",
-              "polygon": [[46.97, -19.92], [47.10, -19.92], [47.10, -19.80], [46.97, -19.80], [46.97, -19.92]]
-            },
-            {
-              "name": "Ambatolampy",
-              "polygon": [[47.38, -19.42], [47.48, -19.42], [47.48, -19.35], [47.38, -19.35], [47.38, -19.42]]
-            }
-          ]
-        },
-        {
-          "name": "Itasy",
-          "code": "MG-T",
-          "polygon": [[46.30, -19.35], [46.95, -19.35], [46.95, -18.70], [46.30, -18.70], [46.30, -19.35]],
-          "cities": [
-            {
-              "name": "Miarinarivo",
-              "polygon": [[46.86, -18.99], [46.94, -18.99], [46.94, -18.91], [46.86, -18.91], [46.86, -18.99]]
-            }
-          ]
-        },
-        {
-          "name": "Bongolava",
-          "code": "MG-T",
-          "polygon": [[45.40, -19.35], [46.30, -19.35], [46.30, -17.80], [45.40, -17.80], [45.40, -19.35]],
-          "cities": [
-            {
-              "name": "Tsiroanomandidy",
-              "polygon": [[46.01, -18.81], [46.09, -18.81], [46.09, -18.73], [46.01, -18.73], [46.01, -18.81]]
-            }
-          ]
-        },
-        {
-          "name": "Vatovavy",
-          "code": "MG-VV",
-          "type": "region",
-          "polygon": [[47.50, -21.60], [48.60, -21.60], [48.60, -20.50], [47.50, -20.50], [47.50, -21.60]],
-          "cities": [
-            {
-              "name": "Mananjary",
-              "polygon": [[48.30, -21.27], [48.39, -21.27], [48.39, -21.18], [48.30, -21.18], [48.30, -21.27]]
-            }
-          ]
-        },
-        {
-          "name": "Fitovinany",
-          "code": "MG-FV",
-          "type": "region",
-          "polygon": [[47.40, -22.55], [48.35, -22.55], [48.35, -21.60], [47.40, -21.60], [47.40, -22.55]],
-          "cities": [
-            {
-              "name": "Manakara",
-              "polygon": [[47.96, -22.19], [48.06, -22.19], [48.06, -22.10], [47.96, -22.10], [47.96, -22.19]]
-            }
-          ]
-        },
-        {
-          "name": "Haute Matsiatra",
-          "code": "MG-F",
-          "polygon": [[46.30, -22.15], [47.40, -22.15], [47.40, -20.95], [46.30, -20.95], [46.30, -22.15]],
-          "cities": [
-            {
-              "name": "Fianarantsoa",
-              "polygon": [[47.03, -21.50], [47.14, -21.50], [47.14, -21.40], [47.03, -21.40], [47.03, -21.50]]
-            }
-          ]
-        },
-        {
-          "name": "Amoron'i Mania",
-          "code": "MG-F",
-          "polygon": [[46.20, -20.95], [47.50, -20.95], [47.50, -20.25], [46.20, -20.25], [46.20, -20.95]],
-          "cities": [
-            {
-              "name": "Ambositra",
-              "polygon": [[47.20, -20.58], [47.30, -20.58], [47.30, -20.48], [47.20, -20.48], [47.20, -20.58]]
-            }
-          ]
-        },
-        {
-          "name": "Atsimo-Atsinanana",
-          "code": "MG-F",
-          "polygon": [[47.00, -23.50], [48.00, -23.50], [48.00, -22.55], [47.00, -22.55], [47.00, -23.50]],
-          "cities": [
-            {
-              "name": "Farafangana",
-              "polygon": [[47.78, -22.86], [47.87, -22.86], [47.87, -22.77], [47.78, -22.77], [47.78, -22.86]]
-            }
-          ]
-        },
-        {
-          "name": "Ihorombe",
-          "code": "MG-F",
-          "polygon": [[45.60, -23.50], [47.00, -23.50], [47.00, -22.15], [45.60, -22.15], [45.60, -23.50]],
-          "cities": [
-            {
-              "name": "Ihosy",
-              "polygon": [[46.08, -22.45], [46.18, -22.45], [46.18, -22.35], [46.08, -22.35], [46.08, -22.45]]
-            }
-          ]
-        },
-        {
-          "name": "Atsinanana",
-          "code": "MG-A",
-          "polygon": [[48.60, -20.50], [49.65, -20.50], [49.65, -17.50], [48.60, -17.50], [48.60, -20.50]],
-          "cities": [
-            {
-              "name": "Toamasina",
-              "polygon": [[49.35, -18.20], [49.45, -18.20], [49.45, -18.08], [49.35, -18.08], [49.35, -18.20]]
-            }
-          ]
-        },
-        {
-          "name": "Alaotra-Mangoro",
-          "code": "MG-A",
-          "polygon": [[48.05, -19.50], [48.60, -19.50], [48.60, -17.20], [48.05, -17.20], [48.05, -19.50]],
-          "cities": [
-            {
-              "name": "Ambatondrazaka",
-              "polygon": [[48.37, -17.88], [48.47, -17.88], [48.47, -17.78], [48.37, -17.78], [48.37, -17.88]]
-            },
-            {
-              "name": "Moramanga",
-              "polygon": [[48.18, -18.99], [48.28, -18.99], [48.28, -18.90], [48.18, -18.90], [48.18, -18.99]]
-            }
-          ]
-        },
-        {
-          "name": "Analanjirofo",
-          "code": "MG-A",
-          "polygon": [[48.85, -17.50], [50.20, -17.50], [50.20, -15.45], [48.85, -15.45], [48.85, -17.50]],
-          "cities": [
-            {
-              "name": "Fenoarivo Atsinanana",
-              "polygon": [[49.37, -17.42], [49.45, -17.42], [49.45, -17.34], [49.37, -17.34], [49.37, -17.42]]
-            }
-          ]
-        },
-        {
-          "name": "Boeny",
-          "code": "MG-M",
-          "polygon": [[45.50, -16.95], [47.30, -16.95], [47.30, -15.40], [45.50, -15.40], [45.50, -16.95]],
-          "cities": [
-            {
-              "name": "Mahajanga",
-              "polygon": [[46.27, -15.77], [46.38, -15.77], [46.38, -15.66], [46.27, -15.66], [46.27, -15.77]]
-            }
-          ]
-        },
-        {
-          "name": "Sofia",
-          "code": "MG-M",
-          "polygon": [[47.30, -16.50], [49.10, -16.50], [49.10, -14.15], [47.30, -14.15], [47.30, -16.50]],
-          "cities": [
-            {
-              "name": "Antsohihy",
-              "polygon": [[47.94, -14.92], [48.02, -14.92], [48.02, -14.84], [47.94, -14.84], [47.94, -14.92]]
-            }
-          ]
-        },
-        {
-          "name": "Betsiboka",
-          "code": "MG-M",
-          "polygon": [[46.30, -17.90], [48.05, -17.90], [48.05, -16.95], [46.30, -16.95], [46.30, -17.90]],
-          "cities": [
-            {
-              "name": "Maevatanana",
-              "polygon": [[46.79, -16.99], [46.87, -16.99], [46.87, -16.91], [46.79, -16.91], [46.79, -16.99]]
-            }
-          ]
-        },
-        {
-          "name": "Melaky",
-          "code": "MG-M",
-          "polygon": [[43.90, -19.00], [45.50, -19.00], [45.50, -16.00], [43.90, -16.00], [43.90, -19.00]],
-          "cities": [
-            {
-              "name": "Maintirano",
-              "polygon": [[44.00, -18.10], [44.08, -18.10], [44.08, -18.02], [44.00, -18.02], [44.00, -18.10]]
-            }
-          ]
-        },
-        {
-          "name": "Diana",
-          "code": "MG-D",
-          "polygon": [[47.90, -14.15], [49.65, -14.15], [49.65, -11.90], [47.90, -11.90], [47.90, -14.15]],
-          "cities": [
-            {
-              "name": "Antsiranana",
-              "polygon": [[49.24, -12.36], [49.34, -12.36], [49.34, -12.24], [49.24, -12.24], [49.24, -12.36]]
-            },
-            {
-              "name": "Nosy Be",
-              "polygon": [[48.18, -13.42], [48.36, -13.42], [48.36, -13.20], [48.18, -13.20], [48.18, -13.42]]
-            }
-          ]
-        },
-        {
-          "name": "Sava",
-          "code": "MG-D",
-          "polygon": [[49.40, -15.45], [50.55, -15.45], [50.55, -13.10], [49.40, -13.10], [49.40, -15.45]],
-          "cities": [
-            {
-              "name": "Sambava",
-              "polygon": [[50.11, -14.32], [50.22, -14.32], [50.22, -14.21], [50.11, -14.21], [50.11, -14.32]]
-            },
-            {
-              "name": "Antalaha",
-              "polygon": [[50.23, -14.95], [50.33, -14.95], [50.33, -14.85], [50.23, -14.85], [50.23, -14.95]]
-            }
-          ]
-        },
-        {
-          "name": "Atsimo-Andrefana",
-          "code": "MG-U",
-          "polygon": [[43.15, -24.00], [45.60, -24.00], [45.60, -21.50], [43.15, -21.50], [43.15, -24.00]],
-          "cities": [
-            {
-              "name": "Toliara",
-              "polygon": [[43.62, -23.41], [43.73, -23.41], [43.73, -23.30], [43.62, -23.30], [43.62, -23.41]]
-            }
-          ]
-        },
-        {
-          "name": "Menabe",
-          "code": "MG-U",
-          "polygon": [[43.90, -21.50], [45.90, -21.50], [45.90, -19.00], [43.90, -19.00], [43.90, -21.50]],
-          "cities": [
-            {
-              "name": "Morondava",
-              "polygon": [[44.23, -20.34], [44.34, -20.34], [44.34, -20.23], [44.23, -20.23], [44.23, -20.34]]
-            }
-          ]
-        },
-        {
-          "name": "Anosy",
-          "code": "MG-U",
-          "polygon": [[45.60, -25.35], [47.40, -25.35], [47.40, -23.50], [45.60, -23.50], [45.60, -25.35]],
-          "cities": [
-            {
-              "name": "Taolagnaro",
-              "polygon": [[46.94, -25.08], [47.04, -25.08], [47.04, -24.98], [46.94, -24.98], [46.94, -25.08]]
-            }
-          ]
-        },
-        {
-          "name": "Androy",
-          "code": "MG-U",
-          "polygon": [[44.80, -25.60], [46.20, -25.60], [46.20, -24.00], [44.80, -24.00], [44.80, -25.60]],
-          "cities": [
-            {
-              "name": "Ambovombe",
-              "polygon": [[46.04, -25.22], [46.13, -25.22], [46.13, -25.13], [46.04, -25.13], [46.04, -25.22]]
-            }
-          ]
-        }
-      ]
+      "name": "Analamanga",
+      "code": "MG-ANA",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Antananarivo",
+      "communes": ["Antananarivo", "Ambohidratrimo", "Andramasina", "Anjozorobe", "Ankazobe", "Manjakandriana"]
     },
     {
-      "country": "South Africa",
-      "country_code": "ZA",
-      "continent": "Africa",
-      "continent_code": "AF",
-      "bbox": [-34.85, 16.45, -22.10, 32.90],
-      "polygon": [[16.45, -34.85], [32.90, -34.85], [32.90, -22.10], [16.45, -22.10], [16.45, -34.85]],
-      "regions": [
-        {
-          "name": "Gauteng",
-          "code": "ZA-GP",
-          "polygon": [[27.20, -26.80], [29.10, -26.80], [29.10, -25.10], [27.20, -25.10], [27.20, -26.80]],
-          "cities": [
-            {
-              "name": "Johannesburg",
-              "polygon": [[27.90, -26.35], [28.20, -26.35], [28.20, -26.05], [27.90, -26.05], [27.90, -26.35]]
-            }
-          ]
-        },
-        {
-          "name": "Western Cape",
-          "code": "ZA-WC",
-          "polygon": [[17.80, -34.85], [24.20, -34.85], [24.20, -31.50], [17.80, -31.50], [17.80, -34.85]],
-          "cities": [
-            {
-              "name": "Cape Town",
-              "polygon": [[18.30, -34.15], [18.65, -34.15], [18.65, -33.80], [18.30, -33.80], [18.30, -34.15]]
-            }
-          ]
-        }
-      ]
+      "name": "Vakinankaratra",
+      "code": "MG-VAK",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Antsirabe",
+      "communes": ["Antsirabe", "Ambatolampy", "Antanifotsy", "Betafo", "Faratsiho", "Mandoto"]
     },
     {
-      "country": "Egypt",
-      "country_code": "EG",
-      "continent": "Africa",
-      "continent_code": "AF",
-      "bbox": [22.00, 24.70, 31.65, 36.90],
-      "polygon": [[24.70, 22.00], [36.90, 22.00], [36.90, 31.65], [24.70, 31.65], [24.70, 22.00]],
-      "regions": [
-        {
-          "name": "Cairo Governorate",
-          "code": "EG-C",
-          "polygon": [[31.10, 29.80], [31.70, 29.80], [31.70, 30.30], [31.10, 30.30], [31.10, 29.80]],
-          "cities": [
-            {
-              "name": "Cairo",
-              "polygon": [[31.18, 29.95], [31.38, 29.95], [31.38, 30.15], [31.18, 30.15], [31.18, 29.95]]
-            }
-          ]
-        }
-      ]
+      "name": "Itasy",
+      "code": "MG-ITA",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Miarinarivo",
+      "communes": ["Miarinarivo", "Arivonimamo", "Soavinandriana"]
     },
     {
-      "country": "France",
-      "country_code": "FR",
-      "continent": "Europe",
-      "continent_code": "EU",
-      "bbox": [41.30, -5.15, 51.10, 9.60],
-      "polygon": [[-5.15, 41.30], [9.60, 41.30], [9.60, 51.10], [-5.15, 51.10], [-5.15, 41.30]],
-      "regions": [
-        {
-          "name": "Île-de-France",
-          "code": "FR-IDF",
-          "polygon": [[1.45, 48.10], [3.55, 48.10], [3.55, 49.25], [1.45, 49.25], [1.45, 48.10]],
-          "cities": [
-            {
-              "name": "Paris",
-              "polygon": [[2.22, 48.81], [2.47, 48.81], [2.47, 48.91], [2.22, 48.91], [2.22, 48.81]]
-            }
-          ]
-        },
-        {
-          "name": "Auvergne-Rhône-Alpes",
-          "code": "FR-ARA",
-          "polygon": [[3.80, 44.10], [6.05, 44.10], [6.05, 46.50], [3.80, 46.50], [3.80, 44.10]],
-          "cities": [
-            {
-              "name": "Lyon",
-              "polygon": [[4.77, 45.70], [4.90, 45.70], [4.90, 45.81], [4.77, 45.81], [4.77, 45.70]]
-            }
-          ]
-        }
-      ]
+      "name": "Bongolava",
+      "code": "MG-BON",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Tsiroanomandidy",
+      "communes": ["Tsiroanomandidy", "Fenoarivobe"]
     },
     {
-      "country": "United Kingdom",
-      "country_code": "GB",
-      "continent": "Europe",
-      "continent_code": "EU",
-      "bbox": [49.90, -8.65, 60.85, 1.80],
-      "polygon": [[-8.65, 49.90], [1.80, 49.90], [1.80, 60.85], [-8.65, 60.85], [-8.65, 49.90]],
-      "regions": [
-        {
-          "name": "England",
-          "code": "GB-ENG",
-          "polygon": [[-5.75, 49.95], [1.80, 49.95], [1.80, 55.80], [-5.75, 55.80], [-5.75, 49.95]],
-          "cities": [
-            {
-              "name": "London",
-              "polygon": [[-0.51, 51.28], [0.33, 51.28], [0.33, 51.69], [-0.51, 51.69], [-0.51, 51.28]]
-            }
-          ]
-        }
-      ]
+      "name": "Haute Matsiatra",
+      "code": "MG-HMA",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Fianarantsoa",
+      "communes": ["Fianarantsoa", "Ambalavao", "Ambohimahasoa", "Ikalamavony", "Isandra", "Lalangina", "Vohibato"]
     },
     {
-      "country": "Germany",
-      "country_code": "DE",
-      "continent": "Europe",
-      "continent_code": "EU",
-      "bbox": [47.25, 5.85, 55.05, 15.05],
-      "polygon": [[5.85, 47.25], [15.05, 47.25], [15.05, 55.05], [5.85, 55.05], [5.85, 47.25]],
-      "regions": [
-        {
-          "name": "Berlin",
-          "code": "DE-BE",
-          "polygon": [[13.08, 52.33], [13.76, 52.33], [13.76, 52.68], [13.08, 52.68], [13.08, 52.33]],
-          "cities": [
-            {
-              "name": "Berlin",
-              "polygon": [[13.15, 52.38], [13.70, 52.38], [13.70, 52.65], [13.15, 52.65], [13.15, 52.38]]
-            }
-          ]
-        }
-      ]
+      "name": "Amoron'i Mania",
+      "code": "MG-AMA",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Ambositra",
+      "communes": ["Ambositra", "Ambatofinandrahana", "Fandriana", "Manandriana"]
     },
     {
-      "country": "Japan",
-      "country_code": "JP",
-      "continent": "Asia",
-      "continent_code": "AS",
-      "bbox": [24.00, 122.90, 45.55, 145.85],
-      "polygon": [[122.90, 24.00], [145.85, 24.00], [145.85, 45.55], [122.90, 45.55], [122.90, 24.00]],
-      "regions": [
-        {
-          "name": "Tokyo",
-          "code": "JP-13",
-          "polygon": [[138.90, 35.50], [139.95, 35.50], [139.95, 35.90], [138.90, 35.90], [138.90, 35.50]],
-          "cities": [
-            {
-              "name": "Tokyo",
-              "polygon": [[139.55, 35.55], [139.92, 35.55], [139.92, 35.82], [139.55, 35.82], [139.55, 35.55]]
-            }
-          ]
-        }
-      ]
+      "name": "Vatovavy",
+      "code": "MG-VAT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Mananjary",
+      "communes": ["Mananjary", "Ifanadiana", "Nosy Varika"]
     },
     {
-      "country": "United Arab Emirates",
-      "country_code": "AE",
-      "continent": "Asia",
-      "continent_code": "AS",
-      "bbox": [22.60, 51.50, 26.10, 56.40],
-      "polygon": [[51.50, 22.60], [56.40, 22.60], [56.40, 26.10], [51.50, 26.10], [51.50, 22.60]],
-      "regions": [
-        {
-          "name": "Dubai",
-          "code": "AE-DU",
-          "polygon": [[54.85, 24.75], [55.60, 24.75], [55.60, 25.35], [54.85, 25.35], [54.85, 24.75]],
-          "cities": [
-            {
-              "name": "Dubai",
-              "polygon": [[55.10, 25.00], [55.45, 25.00], [55.45, 25.30], [55.10, 25.30], [55.10, 25.00]]
-            }
-          ]
-        }
-      ]
+      "name": "Fitovinany",
+      "code": "MG-FIT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Manakara",
+      "communes": ["Manakara", "Ikongo", "Vohipeno"]
     },
     {
-      "country": "United States",
-      "country_code": "US",
-      "continent": "North America",
-      "continent_code": "NA",
-      "bbox": [24.50, -124.80, 49.40, -66.90],
-      "polygon": [[-124.80, 24.50], [-66.90, 24.50], [-66.90, 49.40], [-124.80, 49.40], [-124.80, 24.50]],
-      "regions": [
-        {
-          "name": "New York",
-          "code": "US-NY",
-          "type": "state",
-          "polygon": [[-79.80, 40.45], [-71.85, 40.45], [-71.85, 45.02], [-79.80, 45.02], [-79.80, 40.45]],
-          "cities": [
-            {
-              "name": "New York",
-              "polygon": [[-74.26, 40.49], [-73.70, 40.49], [-73.70, 40.92], [-74.26, 40.92], [-74.26, 40.49]]
-            }
-          ]
-        },
-        {
-          "name": "California",
-          "code": "US-CA",
-          "type": "state",
-          "polygon": [[-124.45, 32.50], [-114.10, 32.50], [-114.10, 42.00], [-124.45, 42.00], [-124.45, 32.50]],
-          "cities": [
-            {
-              "name": "San Francisco",
-              "polygon": [[-122.52, 37.70], [-122.35, 37.70], [-122.35, 37.84], [-122.52, 37.84], [-122.52, 37.70]]
-            },
-            {
-              "name": "Los Angeles",
-              "polygon": [[-118.67, 33.70], [-118.15, 33.70], [-118.15, 34.34], [-118.67, 34.34], [-118.67, 33.70]]
-            }
-          ]
-        }
-      ]
+      "name": "Atsimo-Atsinanana",
+      "code": "MG-AAT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Farafangana",
+      "communes": ["Farafangana", "Befotaka", "Midongy-Atsimo", "Vangaindrano", "Vondrozo"]
     },
     {
-      "country": "Canada",
-      "country_code": "CA",
-      "continent": "North America",
-      "continent_code": "NA",
-      "bbox": [41.70, -141.00, 83.10, -52.60],
-      "polygon": [[-141.00, 41.70], [-52.60, 41.70], [-52.60, 83.10], [-141.00, 83.10], [-141.00, 41.70]],
-      "regions": [
-        {
-          "name": "Quebec",
-          "code": "CA-QC",
-          "type": "province",
-          "polygon": [[-79.80, 45.00], [-57.10, 45.00], [-57.10, 62.60], [-79.80, 62.60], [-79.80, 45.00]],
-          "cities": [
-            {
-              "name": "Montréal",
-              "polygon": [[-73.98, 45.40], [-73.47, 45.40], [-73.47, 45.71], [-73.98, 45.71], [-73.98, 45.40]]
-            }
-          ]
-        },
-        {
-          "name": "Ontario",
-          "code": "CA-ON",
-          "type": "province",
-          "polygon": [[-95.15, 41.70], [-74.30, 41.70], [-74.30, 56.90], [-95.15, 56.90], [-95.15, 41.70]],
-          "cities": [
-            {
-              "name": "Toronto",
-              "polygon": [[-79.64, 43.58], [-79.11, 43.58], [-79.11, 43.86], [-79.64, 43.86], [-79.64, 43.58]]
-            }
-          ]
-        }
-      ]
+      "name": "Ihorombe",
+      "code": "MG-IHO",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Ihosy",
+      "communes": ["Ihosy", "Iakora", "Ivohibe"]
     },
     {
-      "country": "Brazil",
-      "country_code": "BR",
-      "continent": "South America",
-      "continent_code": "SA",
-      "bbox": [-33.75, -73.99, 5.27, -34.79],
-      "polygon": [[-73.99, -33.75], [-34.79, -33.75], [-34.79, 5.27], [-73.99, 5.27], [-73.99, -33.75]],
-      "regions": [
-        {
-          "name": "São Paulo",
-          "code": "BR-SP",
-          "polygon": [[-53.10, -25.30], [-44.15, -25.30], [-44.15, -19.75], [-53.10, -19.75], [-53.10, -25.30]],
-          "cities": [
-            {
-              "name": "São Paulo",
-              "polygon": [[-46.83, -24.00], [-46.36, -24.00], [-46.36, -23.35], [-46.83, -23.35], [-46.83, -24.00]]
-            }
-          ]
-        }
-      ]
+      "name": "Atsinanana",
+      "code": "MG-ATS",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Toamasina",
+      "communes": ["Toamasina", "Antanambao Manampotsy", "Brickaville", "Mahanoro", "Marolambo", "Vatomandry"]
     },
     {
-      "country": "Australia",
-      "country_code": "AU",
-      "continent": "Oceania",
-      "continent_code": "OC",
-      "bbox": [-43.65, 112.90, -10.65, 153.65],
-      "polygon": [[112.90, -43.65], [153.65, -43.65], [153.65, -10.65], [112.90, -10.65], [112.90, -43.65]],
-      "regions": [
-        {
-          "name": "New South Wales",
-          "code": "AU-NSW",
-          "polygon": [[141.00, -37.50], [153.65, -37.50], [153.65, -28.15], [141.00, -28.15], [141.00, -37.50]],
-          "cities": [
-            {
-              "name": "Sydney",
-              "polygon": [[150.60, -34.15], [151.35, -34.15], [151.35, -33.55], [150.60, -33.55], [150.60, -34.15]]
-            }
-          ]
-        }
-      ]
+      "name": "Alaotra-Mangoro",
+      "code": "MG-ALM",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Ambatondrazaka",
+      "communes": ["Ambatondrazaka", "Amparafaravola", "Andilamena", "Anosibe An'ala", "Moramanga"]
+    },
+    {
+      "name": "Analanjirofo",
+      "code": "MG-ANJ",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Fenoarivo Atsinanana",
+      "communes": ["Fenoarivo Atsinanana", "Mananara Avaratra", "Maroantsetra", "Sainte-Marie", "Soanierana Ivongo", "Vavatenina"]
+    },
+    {
+      "name": "Boeny",
+      "code": "MG-BOE",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Mahajanga",
+      "communes": ["Mahajanga", "Ambato-Boeni", "Marovoay", "Mitsinjo", "Soalala"]
+    },
+    {
+      "name": "Sofia",
+      "code": "MG-SOF",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Antsohihy",
+      "communes": ["Antsohihy", "Analalava", "Bealanana", "Befandriana-Avaratra", "Mampikony", "Mandritsara", "Port-Bergé"]
+    },
+    {
+      "name": "Betsiboka",
+      "code": "MG-BET",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Maevatanana",
+      "communes": ["Maevatanana", "Kandreho", "Tsaratanana"]
+    },
+    {
+      "name": "Melaky",
+      "code": "MG-MEL",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Maintirano",
+      "communes": ["Maintirano", "Ambatomainty", "Antsalova", "Besalampy", "Morafenobe"]
+    },
+    {
+      "name": "Diana",
+      "code": "MG-DIA",
+      "iso_province_code": "MG-D",
+      "province_name": "Antsiranana",
+      "type": "region",
+      "cheflieu": "Antsiranana",
+      "communes": ["Antsiranana", "Ambanja", "Ambilobe", "Nosy Be"]
+    },
+    {
+      "name": "Sava",
+      "code": "MG-SAV",
+      "iso_province_code": "MG-D",
+      "province_name": "Antsiranana",
+      "type": "region",
+      "cheflieu": "Sambava",
+      "communes": ["Sambava", "Andapa", "Antalaha", "Vohemar"]
+    },
+    {
+      "name": "Atsimo-Andrefana",
+      "code": "MG-AAN",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Toliara",
+      "communes": ["Toliara", "Ampanihy", "Ankazoabo", "Benenitra", "Beroroha", "Betioky-Atsimo", "Morombe", "Sakaraha"]
+    },
+    {
+      "name": "Menabe",
+      "code": "MG-MEN",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Morondava",
+      "communes": ["Morondava", "Belon'i Tsiribihina", "Mahabo", "Manja", "Miandrivazo"]
+    },
+    {
+      "name": "Anosy",
+      "code": "MG-ANO",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Taolagnaro",
+      "communes": ["Taolagnaro", "Amboasary-Atsimo", "Betroka"]
+    },
+    {
+      "name": "Androy",
+      "code": "MG-AND",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Ambovombe",
+      "communes": ["Ambovombe", "Bekily", "Beloha", "Tsihombe"]
     }
-  ]
+  ],
+  "countries": []
 }

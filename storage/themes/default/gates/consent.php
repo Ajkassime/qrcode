@@ -25,9 +25,19 @@
                             </a>
                         </div>
 
-                        <p class="text-muted mt-4 mb-0" style="font-size: 0.75rem;">
-                            <?php ee('Votre vie privée est respectée. Vos coordonnées GPS ne sont jamais divulguées et servent uniquement à identifier la région administrative.') ?>
-                        </p>
+                        <div class="text-muted mt-4 mb-0 text-start border-top pt-3" style="font-size: 0.75rem;">
+                            <p class="mb-1">
+                                <strong><?php ee('Confidentialité et traitement des données :') ?></strong>
+                                <?php ee('Vos coordonnées GPS brutes ne sont pas enregistrées dans notre base de données ; seuls le pays, la région administrative et la ville correspondante sont conservés pour les statistiques.') ?>
+                            </p>
+                            <p class="mb-0">
+                                <?php if (!empty($geocoderInfo['sends_external'])): ?>
+                                    <?php ee('En cliquant sur « Autoriser et continuer », vos coordonnées GPS sont transmises à un fournisseur externe de géocodage inverse') ?><?php echo !empty($geocoderInfo['provider_name']) ? ' (' . htmlspecialchars($geocoderInfo['provider_name'], ENT_QUOTES, 'UTF-8') . ')' : ''; ?> <?php ee('afin de déterminer votre région ou votre ville.') ?>
+                                <?php else: ?>
+                                    <?php ee('Si un fournisseur externe de géocodage inverse est activé, vos coordonnées GPS peuvent lui être transmises ponctuellement afin de déterminer votre région ou votre ville. Vous pouvez continuer sans partager votre position.') ?>
+                                <?php endif; ?>
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -68,10 +78,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 function (position) {
                     clearTimeout(timeoutGuard);
 
+                    var rawAccuracy = (position.coords && typeof position.coords.accuracy === "number" && isFinite(position.coords.accuracy) && position.coords.accuracy > 0)
+                        ? position.coords.accuracy
+                        : null;
+
                     var payload = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy,
+                        accuracy: rawAccuracy,
                         consent_token: consentNonce,
                         _token: csrfToken
                     };

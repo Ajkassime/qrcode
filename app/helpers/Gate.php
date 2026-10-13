@@ -123,8 +123,11 @@ class Gate {
         $request->unset("geoconsent_used_{$url->id}");
 
         $targetUrl = $url->url;
+        $geocoderInfo = class_exists('\Helpers\GeoLocation')
+            ? \Helpers\GeoLocation::getReverseGeocoderProviderInfo()
+            : ['enabled' => false, 'provider' => 'none', 'provider_name' => null, 'sends_external' => false];
 
-        return View::with('gates.consent', compact('url', 'targetUrl', 'consentNonce'))->extend('layouts.auth');
+        return View::with('gates.consent', compact('url', 'targetUrl', 'consentNonce', 'geocoderInfo'))->extend('layouts.auth');
     }
     /**
      * Direct method

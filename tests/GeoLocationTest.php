@@ -1,7 +1,7 @@
 <?php
 /**
- * Comprehensive Test Suite: Worldwide & Madagascar Geolocation, Polygon Boundary Engine,
- * Reverse Geocoding, Browser Consent Security, and CLI Migration/Repair Scripts
+ * Comprehensive Test Suite: Worldwide & Madagascar Geolocation, Production Reverse Geocoding,
+ * Shared Cross-Process Cache & Quotas, GPS Accuracy & Privacy Rules, and CLI Migration/Repair Scripts
  */
 
 class GeoLocationTest {
@@ -9,11 +9,12 @@ class GeoLocationTest {
     public static function run(&$results) {
         self::testIpDetectionAndSpoofingProtection($results);
         self::testWorldwideMaxmindAndIpv6Resolution($results);
-        self::testMadagascarPolygonBoundariesAndRuralPrecision($results);
-        self::testWorldwideCoordinatesAndReverseGeocoder($results);
-        self::testGpsAccuracyAndBorderProximityDegradation($results);
+        self::testRemovalOfFakeBoundariesAndUniqueMadagascarCodes($results);
+        self::testProviderPriorityAndAllFiveReverseGeocoders($results);
+        self::testSharedCrossProcessCacheExpirationAndQuotas($results);
+        self::testMissingAndCoarseGpsAccuracyAndBorderDegradation($results);
         self::testGeographicHierarchyAndGlobalQualityMetrics($results);
-        self::testGeoConsentEndpointSecurityAndAntiReplay($results);
+        self::testGeoConsentEndpointPrivacyAndExternalFailureResilience($results);
         self::testCliMigrationAndRepairScriptsOnRealDatabase($results);
     }
 
@@ -88,11 +89,13 @@ class GeoLocationTest {
         self::assert($mgMobile['continent'] === 'Africa' && $mgMobile['continent_code'] === 'AF', "MaxMind resolves continent 'Africa' (AF) for 196.192.32.1", $results);
         self::assert($mgMobile['country'] === 'Madagascar' && $mgMobile['country_code'] === 'MG', "MaxMind resolves country 'Madagascar' (MG)", $results);
         self::assert($mgMobile['city'] === null, "City is null for mobile subnet without city POP (never inventing city)", $results);
-        self::assert($mgMobile['precision'] === 'country' && $mgMobile['missing_reason'] === 'country_level_only', "Precision is 'country' with reason 'country_level_only'", $results);
+        self::assert($mgMobile['location_level'] === 'country' && $mgMobile['precision'] === 'country' && $mgMobile['missing_reason'] === 'country_level_only', "Location level is 'country' with reason 'country_level_only'", $results);
+        self::assert($mgMobile['source'] === 'maxmind' && $mgMobile['provider'] === 'maxmind_geolite2' && $mgMobile['declared_accuracy_meters'] === null, "MaxMind IP resolution distinguishes source='maxmind', provider='maxmind_geolite2', declared_accuracy_meters=null", $results);
 
-        // 2. Africa — Madagascar fixed ISP with city POP (41.188.0.1)
+        // 2. Africa — Madagascar fixed ISP with city POP (41.188.0.1) -> normalized to Analamanga (MG-ANA)
         $mgCity = \Helpers\GeoLocation::locate('41.188.0.1');
-        self::assert($mgCity['country'] === 'Madagascar' && $mgCity['city'] === 'Antananarivo' && $mgCity['precision'] === 'city', "MaxMind resolves city 'Antananarivo' for 41.188.0.1", $results);
+        self::assert($mgCity['country'] === 'Madagascar' && $mgCity['city'] === 'Antananarivo' && $mgCity['location_level'] === 'city', "MaxMind resolves city 'Antananarivo' for 41.188.0.1", $results);
+        self::assert($mgCity['region'] === 'Analamanga' && $mgCity['region_code'] === 'MG-ANA', "Madagascar city Antananarivo is normalized to unique regional code MG-ANA (Analamanga)", $results);
 
         // 3. Africa — South Africa (41.0.0.1)
         $za = \Helpers\GeoLocation::locate('41.0.0.1');
@@ -128,7 +131,7 @@ class GeoLocationTest {
                     'country'         => 'Madagascar',
                     'country_code'    => 'MG',
                     'region'          => 'Vatovavy',
-                    'region_code'     => 'MG-VV',
+                    'region_code'     => 'MG-F', // Legacy province code should be normalized to MG-VAT
                     'city'            => null,
                     'accuracy_radius' => 25,
                 ];
@@ -136,150 +139,522 @@ class GeoLocationTest {
             return null;
         });
         $enriched = \Helpers\GeoLocation::locate('196.192.32.1', ['bypass_cache' => true]);
-        self::assert($enriched['region'] === 'Vatovavy' && $enriched['city'] === null && $enriched['precision'] === 'region' && $enriched['source'] === 'secondary_provider', "Secondary provider enriches region without inventing city", $results);
+        self::assert($enriched['region'] === 'Vatovavy' && $enriched['region_code'] === 'MG-VAT' && $enriched['city'] === null && $enriched['location_level'] === 'region' && $enriched['source'] === 'secondary_provider', "Secondary provider enriches region with unique code MG-VAT without inventing city", $results);
         \Helpers\GeoLocation::clearCache();
     }
 
-    public static function testMadagascarPolygonBoundariesAndRuralPrecision(&$results) {
-        echo "Running GeoLocationTest::testMadagascarPolygonBoundariesAndRuralPrecision...\n";
+    public static function testRemovalOfFakeBoundariesAndUniqueMadagascarCodes(&$results) {
+        echo "Running GeoLocationTest::testRemovalOfFakeBoundariesAndUniqueMadagascarCodes...\n";
         \Helpers\GeoLocation::clearCache();
 
-        // 1. Mananjary -> Vatovavy
-        $mananjary = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 20.0);
-        self::assert($mananjary['country'] === 'Madagascar' && $mananjary['country_code'] === 'MG', "Mananjary resolves to Madagascar (MG)", $results);
-        self::assert($mananjary['region'] === 'Vatovavy' && $mananjary['region_code'] === 'MG-VV', "Mananjary resolves to region 'Vatovavy' (MG-VV)", $results);
-        self::assert($mananjary['city'] === 'Mananjary' && $mananjary['precision'] === 'city', "Mananjary urban commune resolves to city 'Mananjary'", $results);
-        self::assert($mananjary['verified'] === false && $mananjary['source'] === 'browser_consent', "Browser coordinates marked verified=false and source='browser_consent'", $results);
+        // 1. Default geo_boundaries.json must have authoritative_polygons=false and no approximate polygons
+        self::assert(\Helpers\GeoLocation::hasAuthoritativeLocalBoundaries() === false, "Default geo_boundaries.json is marked authoritative_polygons=false and never used as fake polygons in production", $results);
 
-        // 2. Manakara -> Fitovinany (Previously impossible under the old 12-city approximation!)
-        $manakara = \Helpers\GeoLocation::resolveCoordinates(-22.148, 48.010, 25.0);
-        self::assert($manakara['region'] === 'Fitovinany' && $manakara['region_code'] === 'MG-FV', "Manakara resolves to region 'Fitovinany' (MG-FV), NOT Vatovavy", $results);
-        self::assert($manakara['city'] === 'Manakara' && $manakara['precision'] === 'city', "Manakara urban commune resolves to city 'Manakara'", $results);
+        // 2. Verify all 23 regions of Madagascar have unique administrative codes (no duplicate MG-T, MG-F, etc.)
+        $mgRegistry = \Helpers\GeoLocation::getMadagascarRegionsRegistry();
+        $regionNames = array_column($mgRegistry, 'name');
+        $regionCodes = array_column($mgRegistry, 'code');
+        self::assert(count($mgRegistry) === 23 && count(array_unique($regionNames)) === 23, "Madagascar registry defines all 23 administrative regions", $results);
+        self::assert(count(array_unique($regionCodes)) === 23, "All 23 Madagascar regions have strictly unique administrative codes (zero duplicate codes)", $results);
+        self::assert(!in_array('MG-T', $regionCodes, true) && !in_array('MG-F', $regionCodes, true), "Legacy duplicate province codes MG-T and MG-F are no longer used as regional identifiers", $results);
 
-        // 3. Antananarivo -> Analamanga
-        $tana = \Helpers\GeoLocation::resolveCoordinates(-18.8792, 47.5079, 15.0);
-        self::assert($tana['region'] === 'Analamanga' && $tana['city'] === 'Antananarivo' && $tana['precision'] === 'city', "Antananarivo resolves to Analamanga / Antananarivo", $results);
+        // 3. Verify isAuthoritativePolygon rejects 4-corner bounding-box rectangles
+        $rectangle = [[47.42, -19.02], [47.62, -19.02], [47.62, -18.78], [47.42, -18.78], [47.42, -19.02]];
+        $multiVertexPoly = [[47.45, -18.80], [47.55, -18.78], [47.62, -18.84], [47.60, -18.95], [47.52, -19.02], [47.43, -18.98], [47.40, -18.88], [47.45, -18.80]];
+        self::assert(\Helpers\GeoLocation::isAuthoritativePolygon($rectangle) === false, "isAuthoritativePolygon rejects 4-corner rectangular bounding boxes", $results);
+        self::assert(\Helpers\GeoLocation::isAuthoritativePolygon($multiVertexPoly) === true, "isAuthoritativePolygon accepts true multi-vertex non-rectangular polygons (>= 6 unique vertices)", $results);
 
-        // 4. Antsirabe -> Vakinankaratra
-        $antsirabe = \Helpers\GeoLocation::resolveCoordinates(-19.8659, 47.0333, 20.0);
-        self::assert($antsirabe['region'] === 'Vakinankaratra' && $antsirabe['city'] === 'Antsirabe' && $antsirabe['precision'] === 'city', "Antsirabe resolves to Vakinankaratra / Antsirabe", $results);
-
-        // 5. Toamasina -> Atsinanana
-        $toamasina = \Helpers\GeoLocation::resolveCoordinates(-18.1492, 49.4023, 20.0);
-        self::assert($toamasina['region'] === 'Atsinanana' && $toamasina['city'] === 'Toamasina' && $toamasina['precision'] === 'city', "Toamasina resolves to Atsinanana / Toamasina", $results);
-
-        // 6. Fianarantsoa -> Haute Matsiatra
-        $fianar = \Helpers\GeoLocation::resolveCoordinates(-21.4536, 47.0858, 20.0);
-        self::assert($fianar['region'] === 'Haute Matsiatra' && $fianar['city'] === 'Fianarantsoa' && $fianar['precision'] === 'city', "Fianarantsoa resolves to Haute Matsiatra / Fianarantsoa", $results);
-
-        // 7. Mahajanga -> Boeny
-        $mahajanga = \Helpers\GeoLocation::resolveCoordinates(-15.7167, 46.3167, 20.0);
-        self::assert($mahajanga['region'] === 'Boeny' && $mahajanga['city'] === 'Mahajanga' && $mahajanga['precision'] === 'city', "Mahajanga resolves to Boeny / Mahajanga", $results);
-
-        // 8. Rural area in Vatovavy (outside Mananjary commune, e.g. Ifanadiana rural zone -21.30, 47.63)
-        $ruralVatovavy = \Helpers\GeoLocation::resolveCoordinates(-21.30, 47.63, 30.0);
-        self::assert($ruralVatovavy['country'] === 'Madagascar' && $ruralVatovavy['region'] === 'Vatovavy' && $ruralVatovavy['city'] === null && $ruralVatovavy['precision'] === 'region', "Rural area in Vatovavy identifies region 'Vatovavy' with city=null (never invents Mananjary)", $results);
-
-        // 9. Rural area in Fitovinany (outside Manakara commune, e.g. -22.30, 47.80)
-        $ruralFitovinany = \Helpers\GeoLocation::resolveCoordinates(-22.30, 47.80, 30.0);
-        self::assert($ruralFitovinany['region'] === 'Fitovinany' && $ruralFitovinany['city'] === null && $ruralFitovinany['precision'] === 'region', "Rural area in Fitovinany identifies region 'Fitovinany' with city=null", $results);
-
-        // 10. Other regions across Madagascar (Bongolava, Androy, Sofia)
-        $bongolava = \Helpers\GeoLocation::resolveCoordinates(-18.77, 46.05, 25.0);
-        self::assert($bongolava['region'] === 'Bongolava' && $bongolava['city'] === 'Tsiroanomandidy', "Tsiroanomandidy resolves to region 'Bongolava' (not Analamanga or Vakinankaratra)", $results);
-
-        $ruralAndroy = \Helpers\GeoLocation::resolveCoordinates(-24.80, 45.50, 30.0);
-        self::assert($ruralAndroy['region'] === 'Androy' && $ruralAndroy['city'] === null && $ruralAndroy['precision'] === 'region', "Rural Androy resolves to region 'Androy' with city=null", $results);
+        // 4. Without an external reverse geocoder configured, resolveCoordinates must NOT attribute any city/region from local file
+        $unconfigured = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 20.0);
+        self::assert(
+            $unconfigured['country'] === null &&
+            $unconfigured['region'] === null &&
+            $unconfigured['city'] === null &&
+            $unconfigured['location_level'] === 'unknown' &&
+            $unconfigured['missing_reason'] === 'reverse_geocoder_disabled',
+            "Without an active reverse geocoder, resolveCoordinates never invents a city or region from local approximate polygons",
+            $results
+        );
     }
 
-    public static function testWorldwideCoordinatesAndReverseGeocoder(&$results) {
-        echo "Running GeoLocationTest::testWorldwideCoordinatesAndReverseGeocoder...\n";
+    public static function testProviderPriorityAndAllFiveReverseGeocoders(&$results) {
+        echo "Running GeoLocationTest::testProviderPriorityAndAllFiveReverseGeocoders...\n";
         \Helpers\GeoLocation::clearCache();
 
-        // 1. Europe: Paris, France
-        $paris = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 20.0);
-        self::assert($paris['continent_code'] === 'EU' && $paris['country'] === 'France' && $paris['country_code'] === 'FR' && $paris['region'] === 'Île-de-France' && $paris['city'] === 'Paris', "Worldwide polygon resolves Paris, Île-de-France, France (EU/FR)", $results);
+        $tmpCacheDir = sys_get_temp_dir() . '/codex_geocache_test_' . uniqid();
+        \Helpers\GeoLocation::setCacheDirectory($tmpCacheDir);
 
-        // 2. Europe: London, UK & Berlin, Germany
-        $london = \Helpers\GeoLocation::resolveCoordinates(51.5074, -0.1278, 20.0);
-        self::assert($london['country_code'] === 'GB' && $london['region'] === 'England' && $london['city'] === 'London', "Worldwide polygon resolves London, England, UK (GB)", $results);
+        // 1. Test Provider Priority:
+        // Even if a custom file contains a rectangular polygon claiming a wrong city ("FakeLocalCity"),
+        // 4-corner rectangles are rejected AND the external reverse geocoder takes priority.
+        $tmpFakeBoundaries = sys_get_temp_dir() . '/codex_fake_boundaries_' . uniqid() . '.json';
+        file_put_contents($tmpFakeBoundaries, json_encode([
+            'authoritative_polygons' => true,
+            'countries' => [[
+                'country' => 'Madagascar',
+                'country_code' => 'MG',
+                'continent' => 'Africa',
+                'continent_code' => 'AF',
+                'regions' => [[
+                    'name' => 'FakeLocalRegion',
+                    'code' => 'MG-FAKE',
+                    'polygon' => [[47.0, -22.5], [49.0, -22.5], [49.0, -20.5], [47.0, -20.5], [47.0, -22.5]], // 4-corner rectangle
+                    'cities' => [[
+                        'name' => 'FakeLocalCity',
+                        'polygon' => [[48.0, -21.5], [48.6, -21.5], [48.6, -21.0], [48.0, -21.0], [48.0, -21.5]],
+                    ]],
+                ]],
+            ]],
+        ]));
+        \Helpers\GeoLocation::setBoundariesPath($tmpFakeBoundaries);
 
-        $berlin = \Helpers\GeoLocation::resolveCoordinates(52.5200, 13.4050, 20.0);
-        self::assert($berlin['country_code'] === 'DE' && $berlin['region'] === 'Berlin' && $berlin['city'] === 'Berlin', "Worldwide polygon resolves Berlin, Germany (DE)", $results);
-
-        // 3. Asia: Tokyo, Japan & Dubai, UAE
-        $tokyo = \Helpers\GeoLocation::resolveCoordinates(35.6762, 139.6503, 20.0);
-        self::assert($tokyo['continent_code'] === 'AS' && $tokyo['country_code'] === 'JP' && $tokyo['region'] === 'Tokyo' && $tokyo['city'] === 'Tokyo', "Worldwide polygon resolves Tokyo, Japan (AS/JP)", $results);
-
-        $dubai = \Helpers\GeoLocation::resolveCoordinates(25.2048, 55.2708, 20.0);
-        self::assert($dubai['continent_code'] === 'AS' && $dubai['country_code'] === 'AE' && $dubai['city'] === 'Dubai', "Worldwide polygon resolves Dubai, UAE (AS/AE)", $results);
-
-        // 4. North America: New York, USA & Montréal, Canada
-        $nyc = \Helpers\GeoLocation::resolveCoordinates(40.7128, -74.0060, 20.0);
-        self::assert($nyc['continent_code'] === 'NA' && $nyc['country_code'] === 'US' && $nyc['region'] === 'New York' && $nyc['admin_type'] === 'state' && $nyc['city'] === 'New York', "Worldwide polygon resolves New York, NY State, US (NA/US)", $results);
-
-        $mtl = \Helpers\GeoLocation::resolveCoordinates(45.5017, -73.5673, 20.0);
-        self::assert($mtl['continent_code'] === 'NA' && $mtl['country_code'] === 'CA' && $mtl['region'] === 'Quebec' && $mtl['admin_type'] === 'province' && $mtl['city'] === 'Montréal', "Worldwide polygon resolves Montréal, Province of Quebec, Canada (NA/CA)", $results);
-
-        // 5. South America: São Paulo, Brazil
-        $sp = \Helpers\GeoLocation::resolveCoordinates(-23.5505, -46.6333, 20.0);
-        self::assert($sp['continent_code'] === 'SA' && $sp['country_code'] === 'BR' && $sp['region'] === 'São Paulo' && $sp['city'] === 'São Paulo', "Worldwide polygon resolves São Paulo, Brazil (SA/BR)", $results);
-
-        // 6. Africa: Johannesburg, South Africa
-        $jhb = \Helpers\GeoLocation::resolveCoordinates(-26.2041, 28.0473, 20.0);
-        self::assert($jhb['continent_code'] === 'AF' && $jhb['country_code'] === 'ZA' && $jhb['region'] === 'Gauteng' && $jhb['city'] === 'Johannesburg', "Worldwide polygon resolves Johannesburg, Gauteng, South Africa (AF/ZA)", $results);
-
-        // 7. Oceania: Sydney, Australia
-        $syd = \Helpers\GeoLocation::resolveCoordinates(-33.8688, 151.2093, 20.0);
-        self::assert($syd['continent_code'] === 'OC' && $syd['country_code'] === 'AU' && $syd['region'] === 'New South Wales' && $syd['city'] === 'Sydney', "Worldwide polygon resolves Sydney, NSW, Australia (OC/AU)", $results);
-
-        // 8. Configurable External Reverse Geocoder with Cache, Quota, Normalization & API Key Masking
-        \Helpers\GeoLocation::setMockReverseGeocoder(function ($lat, $lon) {
+        $externalCalled = false;
+        \Helpers\GeoLocation::setMockReverseGeocoder(function ($lat, $lon) use (&$externalCalled) {
+            $externalCalled = true;
             return [
-                'results' => [[
-                    'components' => [
-                        'ISO_3166-1_alpha-2' => 'CH',
-                        'ISO_3166-2' => ['CH-GE'],
-                        'country' => 'Switzerland',
-                        'state' => 'Geneva',
-                        'city' => 'Genève',
-                    ]
-                ]]
+                'country'      => 'Madagascar',
+                'country_code' => 'MG',
+                'region'       => 'Vatovavy',
+                'city'         => 'Mananjary',
+                '_provider'    => 'opencage',
             ];
         });
-        $geneva1 = \Helpers\GeoLocation::resolveCoordinates(46.2044, 6.1432, 15.0);
-        $geneva2 = \Helpers\GeoLocation::resolveCoordinates(46.2044, 6.1432, 15.0); // Should hit grid cache
-        $stats = \Helpers\GeoLocation::getReverseGeocoderStats();
-        self::assert($geneva1['country'] === 'Switzerland' && $geneva1['country_code'] === 'CH' && $geneva1['region'] === 'Geneva' && $geneva1['city'] === 'Genève', "External reverse geocoder resolves Genève, Switzerland with ISO codes", $results);
-        self::assert($stats['requests_total'] === 1 && $stats['cache_hits'] === 1, "Reverse geocoder caches coordinate cell and increments cache_hits without duplicate API call", $results);
-        self::assert(\Helpers\GeoLocation::maskApiKey('abcdef1234567890xyz') === 'abc*************xyz', "maskApiKey hides sensitive API key characters", $results);
+
+        $priorityRes = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 18.0);
+        self::assert(
+            $externalCalled === true &&
+            $priorityRes['city'] === 'Mananjary' &&
+            $priorityRes['region'] === 'Vatovavy' &&
+            $priorityRes['region_code'] === 'MG-VAT' &&
+            $priorityRes['provider'] === 'opencage',
+            "External reverse geocoder is queried first and overrides/rejects any local rectangular boundary",
+            $results
+        );
+        @unlink($tmpFakeBoundaries);
         \Helpers\GeoLocation::clearCache();
+        \Helpers\GeoLocation::setCacheDirectory($tmpCacheDir);
+
+        // 2. Test all 5 implemented providers (OpenCage, BigDataCloud, Nominatim, Google, Mapbox)
+        //    against independent reference coordinates across 6 continents + rural areas + countries without local polygons
+
+        // Provider A: OpenCage (Geneva, Switzerland [EU] & Mananjary, Madagascar [AF])
+        $lastRequestedUrl = null;
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'  => true,
+            'provider' => 'opencage',
+            'api_key'  => 'oc_live_test_key_123456',
+            'timeout'  => 1.5,
+            'cache_ttl' => 3600,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$lastRequestedUrl) {
+            $lastRequestedUrl = $url;
+            if (strpos($url, '46.2044') !== false) {
+                return json_encode([
+                    'results' => [[
+                        'components' => [
+                            'ISO_3166-1_alpha-2' => 'CH',
+                            'ISO_3166-2'         => ['CH-GE'],
+                            'country'            => 'Switzerland',
+                            'state'              => 'Geneva',
+                            'city'               => 'Genève',
+                        ],
+                    ]],
+                ]);
+            }
+            return json_encode([
+                'results' => [[
+                    'components' => [
+                        'ISO_3166-1_alpha-2' => 'MG',
+                        'country'            => 'Madagascar',
+                        'state'              => 'Vatovavy',
+                        'city'               => 'Mananjary',
+                    ],
+                ]],
+            ]);
+        });
+
+        $ocGeneva = \Helpers\GeoLocation::resolveCoordinates(46.2044, 6.1432, 15.0);
+        self::assert(
+            strpos($lastRequestedUrl, 'api.opencagedata.com/geocode/v1/json') !== false &&
+            $ocGeneva['country_code'] === 'CH' && $ocGeneva['region_code'] === 'CH-GE' && $ocGeneva['city'] === 'Genève' && $ocGeneva['provider'] === 'opencage',
+            "OpenCage adapter builds valid URL and resolves Genève, Switzerland (EU/CH-GE)",
+            $results
+        );
+
+        $ocMananjary = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 20.0);
+        self::assert(
+            $ocMananjary['country_code'] === 'MG' && $ocMananjary['region'] === 'Vatovavy' && $ocMananjary['region_code'] === 'MG-VAT' && $ocMananjary['city'] === 'Mananjary',
+            "OpenCage adapter resolves Mananjary, Vatovavy (MG-VAT), Madagascar",
+            $results
+        );
+
+        // Provider B: BigDataCloud (Sydney, Australia [OC] & Manakara, Fitovinany, Madagascar [AF])
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'   => true,
+            'provider'  => 'bigdatacloud',
+            'api_key'   => 'bdc_key_987654',
+            'cache_ttl' => 3600,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$lastRequestedUrl) {
+            $lastRequestedUrl = $url;
+            if (strpos($url, '-33.8688') !== false) {
+                return json_encode([
+                    'continent'                => 'Oceania',
+                    'continentCode'            => 'OC',
+                    'countryName'              => 'Australia',
+                    'countryCode'              => 'AU',
+                    'principalSubdivision'     => 'New South Wales',
+                    'principalSubdivisionCode' => 'AU-NSW',
+                    'city'                     => 'Sydney',
+                ]);
+            }
+            return json_encode([
+                'countryName'              => 'Madagascar',
+                'countryCode'              => 'MG',
+                'principalSubdivision'     => 'Fitovinany',
+                'principalSubdivisionCode' => 'MG-F',
+                'city'                     => 'Manakara',
+            ]);
+        });
+
+        $bdcSydney = \Helpers\GeoLocation::resolveCoordinates(-33.8688, 151.2093, 18.0);
+        self::assert(
+            strpos($lastRequestedUrl, 'api.bigdatacloud.net/data/reverse-geocode') !== false &&
+            $bdcSydney['continent_code'] === 'OC' && $bdcSydney['country_code'] === 'AU' && $bdcSydney['region_code'] === 'AU-NSW' && $bdcSydney['city'] === 'Sydney' && $bdcSydney['provider'] === 'bigdatacloud',
+            "BigDataCloud adapter resolves Sydney, New South Wales, Australia (OC/AU-NSW)",
+            $results
+        );
+
+        $bdcManakara = \Helpers\GeoLocation::resolveCoordinates(-22.148, 48.010, 22.0);
+        self::assert(
+            $bdcManakara['region'] === 'Fitovinany' && $bdcManakara['region_code'] === 'MG-FIT' && $bdcManakara['city'] === 'Manakara',
+            "BigDataCloud adapter resolves Manakara, Fitovinany (MG-FIT), distinct from Vatovavy",
+            $results
+        );
+
+        // Provider C: Nominatim / OpenStreetMap (Nairobi, Kenya [AF] & Rural Vatovavy, Madagascar [AF])
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'    => true,
+            'provider'   => 'nominatim',
+            'user_agent' => 'QRCodeApp-TestSuite/1.0',
+            'cache_ttl'  => 3600,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$lastRequestedUrl) {
+            $lastRequestedUrl = $url;
+            if (strpos($url, '-1.2921') !== false) {
+                return json_encode([
+                    'address' => [
+                        'city'           => 'Nairobi',
+                        'state'          => 'Nairobi County',
+                        'ISO3166-2-lvl4' => 'KE-30',
+                        'country'        => 'Kenya',
+                        'country_code'   => 'ke',
+                    ],
+                ]);
+            }
+            // Rural area in Vatovavy (-21.30, 47.63): Nominatim returns hamlet/village without city/town/municipality
+            return json_encode([
+                'address' => [
+                    'hamlet'       => 'Ambodiara Rural',
+                    'state'        => 'Vatovavy',
+                    'country'      => 'Madagascar',
+                    'country_code' => 'mg',
+                ],
+            ]);
+        });
+
+        $nomNairobi = \Helpers\GeoLocation::resolveCoordinates(-1.2921, 36.8219, 15.0);
+        self::assert(
+            strpos($lastRequestedUrl, 'nominatim.openstreetmap.org/reverse') !== false &&
+            $nomNairobi['continent_code'] === 'AF' && $nomNairobi['country_code'] === 'KE' && $nomNairobi['region_code'] === 'KE-30' && $nomNairobi['city'] === 'Nairobi' && $nomNairobi['provider'] === 'nominatim',
+            "Nominatim adapter resolves Nairobi, Kenya (AF/KE-30) in country without local polygons",
+            $results
+        );
+
+        $nomRural = \Helpers\GeoLocation::resolveCoordinates(-21.30, 47.63, 25.0);
+        self::assert(
+            $nomRural['country'] === 'Madagascar' &&
+            $nomRural['region'] === 'Vatovavy' &&
+            $nomRural['region_code'] === 'MG-VAT' &&
+            $nomRural['city'] === null &&
+            $nomRural['location_level'] === 'region' &&
+            $nomRural['missing_reason'] === 'outside_urban_commune',
+            "Rural coordinates (-21.30, 47.63) fallback to region 'Vatovavy' (MG-VAT) with city=null (never promoting rural hamlet to urban city)",
+            $results
+        );
+
+        // Provider D: Google Maps Geocoding API (Tokyo, Japan [AS] & New York, USA [NA])
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'   => true,
+            'provider'  => 'google',
+            'api_key'   => 'AIzaSyTestGoogleKey123456',
+            'cache_ttl' => 3600,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$lastRequestedUrl) {
+            $lastRequestedUrl = $url;
+            if (strpos($url, '35.6762') !== false) {
+                return json_encode([
+                    'status'  => 'OK',
+                    'results' => [[
+                        'address_components' => [
+                            ['long_name' => 'Tokyo', 'short_name' => 'Tokyo', 'types' => ['locality', 'political']],
+                            ['long_name' => 'Tokyo', 'short_name' => '13', 'types' => ['administrative_area_level_1', 'political']],
+                            ['long_name' => 'Japan', 'short_name' => 'JP', 'types' => ['country', 'political']],
+                        ],
+                    ]],
+                ]);
+            }
+            return json_encode([
+                'status'  => 'OK',
+                'results' => [[
+                    'address_components' => [
+                        ['long_name' => 'New York', 'short_name' => 'NYC', 'types' => ['locality', 'political']],
+                        ['long_name' => 'New York', 'short_name' => 'NY', 'types' => ['administrative_area_level_1', 'political']],
+                        ['long_name' => 'United States', 'short_name' => 'US', 'types' => ['country', 'political']],
+                    ],
+                ]],
+            ]);
+        });
+
+        $googTokyo = \Helpers\GeoLocation::resolveCoordinates(35.6762, 139.6503, 12.0);
+        self::assert(
+            strpos($lastRequestedUrl, 'maps.googleapis.com/maps/api/geocode/json') !== false &&
+            $googTokyo['continent_code'] === 'AS' && $googTokyo['country_code'] === 'JP' && $googTokyo['region_code'] === 'JP-13' && $googTokyo['city'] === 'Tokyo' && $googTokyo['provider'] === 'google',
+            "Google Maps Geocoding adapter builds valid URL and resolves Tokyo, Japan (AS/JP-13)",
+            $results
+        );
+
+        $googNyc = \Helpers\GeoLocation::resolveCoordinates(40.7128, -74.0060, 15.0);
+        self::assert(
+            $googNyc['continent_code'] === 'NA' && $googNyc['country_code'] === 'US' && $googNyc['region_code'] === 'US-NY' && $googNyc['city'] === 'New York',
+            "Google Maps Geocoding adapter resolves New York, NY, United States (NA/US-NY)",
+            $results
+        );
+
+        // Provider E: Mapbox Geocoding API v5 (São Paulo, Brazil [SA] & Santiago, Chile [SA])
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'   => true,
+            'provider'  => 'mapbox',
+            'api_key'   => 'pk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.test',
+            'cache_ttl' => 3600,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$lastRequestedUrl) {
+            $lastRequestedUrl = $url;
+            return json_encode([
+                'type'     => 'FeatureCollection',
+                'features' => [[
+                    'id'         => 'place.12345',
+                    'place_type' => ['place'],
+                    'text'       => 'São Paulo',
+                    'context'    => [
+                        ['id' => 'region.678', 'text' => 'São Paulo', 'short_code' => 'BR-SP'],
+                        ['id' => 'country.901', 'text' => 'Brazil', 'short_code' => 'br'],
+                    ],
+                ]],
+            ]);
+        });
+
+        $mbSp = \Helpers\GeoLocation::resolveCoordinates(-23.5505, -46.6333, 20.0);
+        // Verify Mapbox URL uses {longitude},{latitude} order (-46.6333,-23.5505)
+        self::assert(
+            strpos($lastRequestedUrl, 'api.mapbox.com/geocoding/v5/mapbox.places/-46.6333%2C-23.5505.json') !== false &&
+            $mbSp['continent_code'] === 'SA' && $mbSp['country_code'] === 'BR' && $mbSp['region_code'] === 'BR-SP' && $mbSp['city'] === 'São Paulo' && $mbSp['provider'] === 'mapbox',
+            "Mapbox Geocoding adapter uses {lon},{lat} order and resolves São Paulo, Brazil (SA/BR-SP)",
+            $results
+        );
+
+        // 3. Test External Provider Unavailability (HTTP failure / timeout)
+        \Helpers\GeoLocation::setMockHttpTransport(function () {
+            return null; // Simulate network timeout / HTTP 503
+        });
+        $unavailable = \Helpers\GeoLocation::resolveCoordinates(-18.8792, 47.5079, 20.0);
+        self::assert(
+            $unavailable['country'] === null &&
+            $unavailable['region'] === null &&
+            $unavailable['city'] === null &&
+            $unavailable['location_level'] === 'unknown' &&
+            $unavailable['missing_reason'] === 'reverse_geocoder_unavailable',
+            "External reverse geocoder failure returns location_level='unknown' and reason='reverse_geocoder_unavailable' without crashing",
+            $results
+        );
+
+        \Helpers\GeoLocation::clearCache();
+        @rmdir($tmpCacheDir);
     }
 
-    public static function testGpsAccuracyAndBorderProximityDegradation(&$results) {
-        echo "Running GeoLocationTest::testGpsAccuracyAndBorderProximityDegradation...\n";
+    public static function testSharedCrossProcessCacheExpirationAndQuotas(&$results) {
+        echo "Running GeoLocationTest::testSharedCrossProcessCacheExpirationAndQuotas...\n";
+
+        $tmpCacheDir = sys_get_temp_dir() . '/codex_shared_cache_' . uniqid();
+        \Helpers\GeoLocation::clearCache();
+        \Helpers\GeoLocation::setCacheDirectory($tmpCacheDir);
+
+        $baseTime = 1760000000;
+        \Helpers\GeoLocation::setTestTimestamp($baseTime);
+
+        $httpCallsCount = 0;
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'                 => true,
+            'provider'                => 'opencage',
+            'api_key'                 => 'oc_test_cache_quota_key',
+            'cache_ttl'               => 120, // 2 minutes TTL
+            'max_requests_per_minute' => 2,
+            'daily_quota'             => 3,
+        ]);
+
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$httpCallsCount) {
+            $httpCallsCount++;
+            return json_encode([
+                'results' => [[
+                    'components' => [
+                        'ISO_3166-1_alpha-2' => 'FR',
+                        'ISO_3166-2'         => ['FR-IDF'],
+                        'country'            => 'France',
+                        'state'              => 'Île-de-France',
+                        'city'               => 'Paris',
+                    ],
+                ]],
+            ]);
+        });
+
+        // 1. First call populates L1 memory and L2 shared disk cache
+        $res1 = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        self::assert($httpCallsCount === 1 && $res1['city'] === 'Paris', "First coordinate lookup queries external provider and caches result on disk", $results);
+
+        // 2. Simulate a separate PHP-FPM worker process by wiping L1 in-memory cache
+        \Helpers\GeoLocation::resetWorkerMemory();
+        $res2 = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        $statsAfterHit = \Helpers\GeoLocation::getReverseGeocoderStats();
+        self::assert(
+            $httpCallsCount === 1 && $res2['city'] === 'Paris' && $statsAfterHit['cache_hits'] === 1,
+            "Second lookup from a new worker hits shared L2 disk cache without making a duplicate API call",
+            $results
+        );
+
+        // 3. Advance time beyond TTL (baseTime + 180s > 120s TTL) to verify effective expiration
+        \Helpers\GeoLocation::setTestTimestamp($baseTime + 180);
+        \Helpers\GeoLocation::resetWorkerMemory();
+        $res3 = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        self::assert($httpCallsCount === 2 && $res3['city'] === 'Paris', "Expired cache entry on disk is invalidated after TTL elapses, triggering a fresh API lookup", $results);
+
+        // 4. Test per-minute rate limit (max_requests_per_minute = 2) within the same minute window (baseTime + 180)
+        // Call #2 in this minute window with distinct coordinates:
+        $res4 = \Helpers\GeoLocation::resolveCoordinates(45.7640, 4.8357, 15.0);
+        self::assert($httpCallsCount === 3 && $res4['country'] === 'France', "Second request in the same minute window is allowed (2/2 rpm)", $results);
+
+        // Call #3 in the same minute window must be blocked by rate limiter!
+        $resRateLimited = \Helpers\GeoLocation::resolveCoordinates(43.2965, 5.3698, 15.0);
+        $statsAfterLimit = \Helpers\GeoLocation::getReverseGeocoderStats();
+        self::assert(
+            $httpCallsCount === 3 &&
+            $resRateLimited['location_level'] === 'unknown' &&
+            $resRateLimited['missing_reason'] === 'quota_exceeded' &&
+            $statsAfterLimit['quota_exceeded_count'] === 1,
+            "Third uncached request in the same minute is blocked by shared per-minute rate limit (quota_exceeded)",
+            $results
+        );
+
+        // 5. Advance time by 1 minute (baseTime + 240): minute_count resets, but daily_quota = 3 is now reached!
+        \Helpers\GeoLocation::setTestTimestamp($baseTime + 240);
+        $resDailyExceeded = \Helpers\GeoLocation::resolveCoordinates(43.2965, 5.3698, 15.0);
+        $statsAfterDaily = \Helpers\GeoLocation::getReverseGeocoderStats();
+        self::assert(
+            $httpCallsCount === 3 &&
+            $resDailyExceeded['missing_reason'] === 'quota_exceeded' &&
+            $statsAfterDaily['quota_exceeded_count'] === 2,
+            "Daily quota cap (3/3) blocks further requests even in a new minute window",
+            $results
+        );
+
+        self::assert(\Helpers\GeoLocation::maskApiKey('abcdef1234567890xyz') === 'abc*************xyz', "maskApiKey hides sensitive API key characters", $results);
+
+        \Helpers\GeoLocation::clearCache();
+        @rmdir($tmpCacheDir);
+    }
+
+    public static function testMissingAndCoarseGpsAccuracyAndBorderDegradation(&$results) {
+        echo "Running GeoLocationTest::testMissingAndCoarseGpsAccuracyAndBorderDegradation...\n";
         \Helpers\GeoLocation::clearCache();
 
-        // 1. Very low GPS accuracy (> 50km, e.g. 75,000m) -> degrades to country only
+        \Helpers\GeoLocation::setMockReverseGeocoder(function ($lat, $lon) {
+            if ($lat < -50 || $lon > 60) {
+                return null;
+            }
+            // Simulate a point 0.55 km from Vatovavy/Fitovinany regional border when lat is near -21.595
+            $borderDist = (abs($lat - (-21.595)) < 0.01) ? 0.55 : 25.0;
+            return [
+                'country'               => 'Madagascar',
+                'country_code'          => 'MG',
+                'region'                => 'Vatovavy',
+                'region_code'           => 'MG-VAT',
+                'city'                  => 'Mananjary',
+                'region_border_dist_km' => $borderDist,
+                '_provider'             => 'opencage',
+            ];
+        });
+
+        // 1. Missing GPS accuracy (null) -> MUST NEVER default to 50m!
+        $missingAcc = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, null);
+        self::assert(
+            $missingAcc['declared_accuracy_meters'] === null &&
+            $missingAcc['accuracy_radius'] === null,
+            "Missing GPS accuracy (null) keeps declared_accuracy_meters=null and accuracy_radius=null (never defaults to 50m)",
+            $results
+        );
+        self::assert(
+            $missingAcc['country'] === 'Madagascar' &&
+            $missingAcc['region'] === 'Vatovavy' &&
+            $missingAcc['region_code'] === 'MG-VAT' &&
+            $missingAcc['city'] === null &&
+            $missingAcc['location_level'] === 'region' &&
+            $missingAcc['missing_reason'] === 'missing_gps_accuracy',
+            "Missing GPS accuracy caps localization level at 'region' with city=null and missing_reason='missing_gps_accuracy'",
+            $results
+        );
+
+        // 2. Very low GPS accuracy (> 50km, e.g. 75,000m) -> degrades to country only
         $coarseCountry = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 75000.0);
-        self::assert($coarseCountry['country'] === 'Madagascar' && $coarseCountry['region'] === null && $coarseCountry['city'] === null && $coarseCountry['precision'] === 'country' && $coarseCountry['missing_reason'] === 'low_gps_accuracy', "GPS accuracy > 50km degrades to country only (never attributes uncertain region or city)", $results);
+        self::assert(
+            $coarseCountry['country'] === 'Madagascar' &&
+            $coarseCountry['region'] === null &&
+            $coarseCountry['city'] === null &&
+            $coarseCountry['location_level'] === 'country' &&
+            $coarseCountry['declared_accuracy_meters'] === 75000.0 &&
+            $coarseCountry['accuracy_radius'] === 75.0 &&
+            $coarseCountry['missing_reason'] === 'low_gps_accuracy',
+            "GPS accuracy > 50km degrades to country only (never attributes uncertain region or city)",
+            $results
+        );
 
-        // 2. Moderate GPS accuracy (e.g. 8,000m = 8km inside Mananjary) -> degrades city to null, keeps region Vatovavy
+        // 3. Moderate GPS accuracy (e.g. 8,000m = 8km) -> degrades city to null, keeps region Vatovavy
         $coarseCity = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 8000.0);
-        self::assert($coarseCity['country'] === 'Madagascar' && $coarseCity['region'] === 'Vatovavy' && $coarseCity['city'] === null && $coarseCity['precision'] === 'region' && $coarseCity['missing_reason'] === 'low_gps_accuracy_for_city', "GPS accuracy > 5km degrades city to null while preserving region Vatovavy", $results);
+        self::assert(
+            $coarseCity['country'] === 'Madagascar' &&
+            $coarseCity['region'] === 'Vatovavy' &&
+            $coarseCity['city'] === null &&
+            $coarseCity['location_level'] === 'region' &&
+            $coarseCity['missing_reason'] === 'low_gps_accuracy_for_city',
+            "GPS accuracy > 5km degrades city to null while preserving region Vatovavy",
+            $results
+        );
 
-        // 3. Proximity to regional border between Vatovavy and Fitovinany (border at lat = -21.60)
-        // Visitor at lat = -21.595 (approx 0.55 km from border) with GPS uncertainty of 2,500m (2.5 km)
+        // 4. Proximity to regional border between Vatovavy and Fitovinany (0.55 km from border, uncertainty 2,500m = 2.5km)
         $borderZone = \Helpers\GeoLocation::resolveCoordinates(-21.595, 48.00, 2500.0);
-        self::assert($borderZone['country'] === 'Madagascar' && $borderZone['region'] === null && $borderZone['city'] === null && $borderZone['precision'] === 'country' && $borderZone['missing_reason'] === 'region_border_uncertainty', "Point near Vatovavy/Fitovinany border with overlapping GPS uncertainty degrades to country level", $results);
-
-        // 4. Ocean / International waters (Indian Ocean: -20.0, 65.0)
-        $ocean = \Helpers\GeoLocation::resolveCoordinates(-20.0, 65.0, 20.0);
-        self::assert($ocean['country'] === null && $ocean['region'] === null && $ocean['city'] === null && $ocean['precision'] === 'unknown' && $ocean['missing_reason'] === 'out_of_coverage', "Ocean / out-of-coverage coordinates return null country/region/city and 'out_of_coverage'", $results);
+        self::assert(
+            $borderZone['country'] === 'Madagascar' &&
+            $borderZone['region'] === null &&
+            $borderZone['city'] === null &&
+            $borderZone['location_level'] === 'country' &&
+            $borderZone['missing_reason'] === 'region_border_uncertainty',
+            "Point near regional border with overlapping GPS uncertainty degrades to country level",
+            $results
+        );
 
         // 5. Invalid coordinates
-        $oob = \Helpers\GeoLocation::resolveCoordinates(999.0, -999.0);
-        self::assert($oob['precision'] === 'unknown' && $oob['missing_reason'] === 'invalid_coordinates', "Out-of-bounds coordinates return 'invalid_coordinates'", $results);
+        $oob = \Helpers\GeoLocation::resolveCoordinates(999.0, -999.0, 20.0);
+        self::assert($oob['location_level'] === 'unknown' && $oob['missing_reason'] === 'invalid_coordinates', "Out-of-bounds coordinates return 'invalid_coordinates'", $results);
+
+        \Helpers\GeoLocation::clearCache();
     }
 
     public static function testGeographicHierarchyAndGlobalQualityMetrics(&$results) {
@@ -299,10 +674,10 @@ class GeoLocationTest {
 
         // Global quality metrics with percentages & continents
         $sampleAggregations = [
-            ['city' => 'Mananjary', 'region' => 'Vatovavy',   'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 15],
-            ['city' => 'Paris',     'region' => 'Île-de-France', 'country' => 'France',  'country_code' => 'FR', 'count' => 10],
-            ['city' => '',          'region' => 'Fitovinany', 'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 15],
-            ['city' => 'Unknown',   'region' => '',           'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 10],
+            ['city' => 'Mananjary', 'region' => 'Vatovavy',      'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 15],
+            ['city' => 'Paris',     'region' => 'Île-de-France', 'country' => 'France',     'country_code' => 'FR', 'count' => 10],
+            ['city' => '',          'region' => 'Fitovinany',    'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 15],
+            ['city' => 'Unknown',   'region' => '',              'country' => 'Madagascar', 'country_code' => 'MG', 'count' => 10],
         ];
         $metrics = \Helpers\GeoLocation::calculateQualityMetrics($sampleAggregations);
         self::assert($metrics['identified_city_count'] === 25 && $metrics['city_percent'] === 50.0, "Quality metrics computes 25 city clicks (50.0%)", $results);
@@ -311,8 +686,9 @@ class GeoLocationTest {
         self::assert($metrics['continents']['Africa'] === 40 && $metrics['continents']['Europe'] === 10, "Quality metrics aggregates scans by continent (Africa=40, Europe=10)", $results);
     }
 
-    public static function testGeoConsentEndpointSecurityAndAntiReplay(&$results) {
-        echo "Running GeoLocationTest::testGeoConsentEndpointSecurityAndAntiReplay...\n";
+    public static function testGeoConsentEndpointPrivacyAndExternalFailureResilience(&$results) {
+        echo "Running GeoLocationTest::testGeoConsentEndpointPrivacyAndExternalFailureResilience...\n";
+        \Helpers\GeoLocation::clearCache();
 
         // Set up an in-memory SQLite database via \Core\DB to test LinkController::geoConsent() end-to-end
         \Core\DB::configure('sqlite::memory:');
@@ -405,20 +781,45 @@ class GeoLocationTest {
         $out4 = json_decode(ob_get_clean(), true);
         self::assert(\Core\Response::lastStatusCode() === 403 && !empty($out4['error']), "geoConsent blocks cross-visitor modification when requester IP does not match stat IP (403)", $results);
 
-        // Case 5: Valid consent flow via Gate::consentLocation() -> updates stat 10 with Mananjary / Vatovavy and blocks replay
+        // Case 5: Verify Gate::consentLocation() privacy disclosure and valid consent flow
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'  => true,
+            'provider' => 'opencage',
+            'api_key'  => 'oc_live_test_key',
+        ]);
+        \Helpers\GeoLocation::setMockReverseGeocoder(function ($lat, $lon) {
+            return [
+                'country'      => 'Madagascar',
+                'country_code' => 'MG',
+                'region'       => 'Vatovavy',
+                'region_code'  => 'MG-VAT',
+                'city'         => 'Mananjary',
+                '_provider'    => 'opencage',
+            ];
+        });
+
         $_SERVER['REMOTE_ADDR'] = '196.192.32.1';
         $_SESSION = ['last_stat_1' => 10];
         $urlObj = \Core\DB::url()->where('id', 1)->first();
         ob_start();
         \Helpers\Gate::consentLocation($urlObj);
-        ob_end_clean();
+        $consentHtml = ob_get_clean();
         $generatedNonce = $_SESSION['geoconsent_nonce_1'] ?? '';
+
         self::assert(!empty($generatedNonce) && strlen($generatedNonce) === 64, "Gate::consentLocation generates 64-char HMAC-SHA256 scan-bound nonce", $results);
+        self::assert(
+            strpos($consentHtml, 'fournisseur externe de géocodage inverse') !== false &&
+            strpos($consentHtml, 'OpenCage Geocoding API') !== false &&
+            strpos($consentHtml, 'Continuer sans partager') !== false &&
+            strpos($consentHtml, 'jamais divulguées') === false,
+            "Consent page transparently discloses external reverse geocoding transmission and provider name without false non-disclosure claims",
+            $results
+        );
 
         \Core\Request::setRawBody(json_encode([
-            'latitude' => -21.223,
-            'longitude' => 48.341,
-            'accuracy' => 18.0,
+            'latitude'      => -21.223,
+            'longitude'     => 48.341,
+            'accuracy'      => 18.0,
             'consent_token' => $generatedNonce,
         ]));
         $req5 = new \Core\Request();
@@ -442,7 +843,46 @@ class GeoLocationTest {
         $out6 = json_decode(ob_get_clean(), true);
         self::assert(\Core\Response::lastStatusCode() === 409 && !empty($out6['error']), "Replaying geoConsent for the same scan is rejected with 409 Conflict", $results);
 
+        // Case 7: Resilience when external reverse geocoder is unavailable during geoConsent:
+        // Existing MaxMind IP country ('Madagascar') must be preserved and WhatsApp redirect must succeed!
+        $pdo->exec("INSERT INTO `{$prefix}stats` (`id`, `short`, `urlid`, `ip`, `country`, `region`, `city`, `geo_source`) VALUES
+            (30, 'wa-promo', 1, '196.192.32.1', 'Madagascar', NULL, NULL, 'maxmind')
+        ");
+        $_SESSION = ['last_stat_1' => 30];
+        ob_start();
+        \Helpers\Gate::consentLocation($urlObj);
+        ob_end_clean();
+        $nonce30 = $_SESSION['geoconsent_nonce_1'] ?? '';
+
+        \Helpers\GeoLocation::setMockReverseGeocoder(function () {
+            return null; // Simulate external provider outage
+        });
+
+        \Core\Request::setRawBody(json_encode([
+            'latitude'      => -21.223,
+            'longitude'     => 48.341,
+            'accuracy'      => 20.0,
+            'consent_token' => $nonce30,
+        ]));
+        $req7 = new \Core\Request();
+        ob_start();
+        $controller->geoConsent($req7, 'wa-promo');
+        $out7 = json_decode(ob_get_clean(), true);
+        $stat30 = \Core\DB::stats()->where('id', 30)->first();
+
+        self::assert(
+            \Core\Response::lastStatusCode() === 200 &&
+            !empty($out7['success']) &&
+            $out7['geo_updated'] === false &&
+            $out7['redirect'] === 'https://wa.me/261340000000?text=Bonjour' &&
+            $stat30->country === 'Madagascar' &&
+            $stat30->geo_source === 'maxmind',
+            "When external reverse geocoder is unavailable, geoConsent preserves MaxMind country='Madagascar' and redirects cleanly to WhatsApp",
+            $results
+        );
+
         \Core\Request::setRawBody(null);
+        \Helpers\GeoLocation::clearCache();
     }
 
     public static function testCliMigrationAndRepairScriptsOnRealDatabase(&$results) {
@@ -493,11 +933,6 @@ class GeoLocationTest {
             `language` TEXT
         )");
 
-        // Insert historical records:
-        // - Row 1: Public Madagascar fixed IP (41.188.0.1 -> Antananarivo) with missing city
-        // - Row 2: Public France IP (80.12.34.56 -> Andrésy / Île-de-France) with 'Unknown' city
-        // - Row 3: MD5 hashed IP (d41d8cd98f00b204e9800998ecf8427e) -> must NEVER be modified
-        // - Row 4: Private IP (192.168.1.50) -> must be skipped
         $testPdo->exec("INSERT INTO `stats` (`id`, `short`, `urlid`, `ip`, `country`, `city`) VALUES
             (1, 'qr1', 1, '41.188.0.1', 'madagascar', ''),
             (2, 'qr2', 1, '80.12.34.56', 'france', 'Unknown'),
@@ -551,7 +986,7 @@ class GeoLocationTest {
         // Verify database contents after repair
         $verifyPdo = new \PDO('sqlite:' . $tmpSqlite);
         $rows = $verifyPdo->query("SELECT id, ip, country, region, city, geo_source FROM `stats` ORDER BY id ASC")->fetchAll(\PDO::FETCH_ASSOC);
-        self::assert($rows[0]['city'] === 'Antananarivo' && $rows[0]['geo_source'] === 'maxmind_repair', "Row 1 (41.188.0.1) repaired to city 'Antananarivo' with geo_source='maxmind_repair'", $results);
+        self::assert($rows[0]['city'] === 'Antananarivo' && $rows[0]['region'] === 'Analamanga' && $rows[0]['geo_source'] === 'maxmind_repair', "Row 1 (41.188.0.1) repaired to city 'Antananarivo', region 'Analamanga' with geo_source='maxmind_repair'", $results);
         self::assert($rows[1]['city'] === 'Andrésy' && $rows[1]['region'] === 'Île-de-France', "Row 2 (80.12.34.56) repaired to city 'Andrésy' and region 'Île-de-France'", $results);
         self::assert($rows[2]['city'] === '' && $rows[2]['region'] === null, "Row 3 (MD5 hashed IP) strictly untouched by geo-repair.php", $results);
         self::assert($rows[3]['city'] === '' && $rows[3]['region'] === null, "Row 4 (private IP) strictly untouched by geo-repair.php", $results);

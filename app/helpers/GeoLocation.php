@@ -19,19 +19,19 @@ use Core\Http;
 class GeoLocation {
 
     /**
-     * In-memory cache for IP resolutions
+     * In-memory L1 cache for IP resolutions within the same worker request
      * @var array
      */
     protected static $memoryCache = [];
 
     /**
-     * In-memory cache for reverse geocoding coordinate cells
+     * In-memory L1 cache for reverse geocoding coordinate cells
      * @var array
      */
     protected static $reverseGeoCache = [];
 
     /**
-     * Loaded administrative boundary polygons dataset
+     * Loaded administrative boundary dataset / registry
      * @var array|null
      */
     protected static $boundariesData = null;
@@ -41,6 +41,30 @@ class GeoLocation {
      * @var string|null
      */
     protected static $customBoundariesPath = null;
+
+    /**
+     * Custom shared cache directory override
+     * @var string|null
+     */
+    protected static $customCacheDir = null;
+
+    /**
+     * Custom reverse geocoder configuration override
+     * @var array|null
+     */
+    protected static $customReverseGeocoderConfig = null;
+
+    /**
+     * Custom secondary IP provider configuration override
+     * @var array|null
+     */
+    protected static $customSecondaryConfig = null;
+
+    /**
+     * Custom timestamp override for deterministic TTL / quota window testing
+     * @var int|null
+     */
+    protected static $testTimestamp = null;
 
     /**
      * Mock reader for testing purposes
@@ -61,24 +85,27 @@ class GeoLocation {
     protected static $mockReverseGeocoder = null;
 
     /**
+     * Mock HTTP transport for testing real provider URL & payload parsing
+     * @var callable|null
+     */
+    protected static $mockHttpTransport = null;
+
+    /**
      * Cached stats table columns
      * @var array|null
      */
     protected static $statsColumnsCache = null;
 
     /**
-     * Rate-limiting and quota tracking for external reverse geocoder
+     * Supported reverse geocoding providers and their requirements
      * @var array
      */
-    protected static $geocoderMetrics = [
-        'requests_total'       => 0,
-        'cache_hits'           => 0,
-        'quota_exceeded_count' => 0,
-        'errors_count'         => 0,
-        'minute_window'        => 0,
-        'minute_count'         => 0,
-        'day_window'           => '',
-        'day_count'            => 0,
+    protected static $supportedReverseProviders = [
+        'opencage'     => ['name' => 'OpenCage Geocoding API', 'requires_key' => true],
+        'bigdatacloud' => ['name' => 'BigDataCloud Reverse Geocoding', 'requires_key' => false],
+        'nominatim'    => ['name' => 'OpenStreetMap Nominatim', 'requires_key' => false],
+        'google'       => ['name' => 'Google Maps Geocoding API', 'requires_key' => true],
+        'mapbox'       => ['name' => 'Mapbox Geocoding API', 'requires_key' => true],
     ];
 
     /**
@@ -132,6 +159,12 @@ class GeoLocation {
         'SC' => ['code' => 'AF', 'name' => 'Africa'],
         'TZ' => ['code' => 'AF', 'name' => 'Africa'],
         'MZ' => ['code' => 'AF', 'name' => 'Africa'],
+        'DZ' => ['code' => 'AF', 'name' => 'Africa'],
+        'TN' => ['code' => 'AF', 'name' => 'Africa'],
+        'GH' => ['code' => 'AF', 'name' => 'Africa'],
+        'ET' => ['code' => 'AF', 'name' => 'Africa'],
+        'UG' => ['code' => 'AF', 'name' => 'Africa'],
+        'RW' => ['code' => 'AF', 'name' => 'Africa'],
         'FR' => ['code' => 'EU', 'name' => 'Europe'],
         'GB' => ['code' => 'EU', 'name' => 'Europe'],
         'DE' => ['code' => 'EU', 'name' => 'Europe'],
@@ -144,6 +177,13 @@ class GeoLocation {
         'SE' => ['code' => 'EU', 'name' => 'Europe'],
         'NO' => ['code' => 'EU', 'name' => 'Europe'],
         'PL' => ['code' => 'EU', 'name' => 'Europe'],
+        'AT' => ['code' => 'EU', 'name' => 'Europe'],
+        'IE' => ['code' => 'EU', 'name' => 'Europe'],
+        'DK' => ['code' => 'EU', 'name' => 'Europe'],
+        'FI' => ['code' => 'EU', 'name' => 'Europe'],
+        'GR' => ['code' => 'EU', 'name' => 'Europe'],
+        'CZ' => ['code' => 'EU', 'name' => 'Europe'],
+        'RO' => ['code' => 'EU', 'name' => 'Europe'],
         'TR' => ['code' => 'AS', 'name' => 'Asia'],
         'JP' => ['code' => 'AS', 'name' => 'Asia'],
         'CN' => ['code' => 'AS', 'name' => 'Asia'],
@@ -157,17 +197,110 @@ class GeoLocation {
         'MY' => ['code' => 'AS', 'name' => 'Asia'],
         'PH' => ['code' => 'AS', 'name' => 'Asia'],
         'SA' => ['code' => 'AS', 'name' => 'Asia'],
+        'QA' => ['code' => 'AS', 'name' => 'Asia'],
+        'IL' => ['code' => 'AS', 'name' => 'Asia'],
+        'PK' => ['code' => 'AS', 'name' => 'Asia'],
+        'BD' => ['code' => 'AS', 'name' => 'Asia'],
+        'TW' => ['code' => 'AS', 'name' => 'Asia'],
+        'HK' => ['code' => 'AS', 'name' => 'Asia'],
         'US' => ['code' => 'NA', 'name' => 'North America'],
         'CA' => ['code' => 'NA', 'name' => 'North America'],
         'MX' => ['code' => 'NA', 'name' => 'North America'],
+        'CR' => ['code' => 'NA', 'name' => 'North America'],
+        'PA' => ['code' => 'NA', 'name' => 'North America'],
         'BR' => ['code' => 'SA', 'name' => 'South America'],
         'AR' => ['code' => 'SA', 'name' => 'South America'],
         'CL' => ['code' => 'SA', 'name' => 'South America'],
         'CO' => ['code' => 'SA', 'name' => 'South America'],
         'PE' => ['code' => 'SA', 'name' => 'South America'],
+        'UY' => ['code' => 'SA', 'name' => 'South America'],
+        'EC' => ['code' => 'SA', 'name' => 'South America'],
         'AU' => ['code' => 'OC', 'name' => 'Oceania'],
         'NZ' => ['code' => 'OC', 'name' => 'Oceania'],
+        'FJ' => ['code' => 'OC', 'name' => 'Oceania'],
     ];
+
+    /**
+     * Current unix timestamp (supports deterministic test override)
+     */
+    protected static function currentTime(): int {
+        return self::$testTimestamp !== null ? self::$testTimestamp : time();
+    }
+
+    /**
+     * Set custom timestamp for testing cache TTL expiration and rate-limit windows
+     */
+    public static function setTestTimestamp(?int $timestamp): void {
+        self::$testTimestamp = $timestamp;
+    }
+
+    /**
+     * Set custom shared cache directory
+     */
+    public static function setCacheDirectory(?string $dir): void {
+        self::$customCacheDir = $dir;
+        self::$memoryCache = [];
+        self::$reverseGeoCache = [];
+    }
+
+    /**
+     * Get the shared cross-process cache directory
+     */
+    public static function getCacheDirectory(): string {
+        if (self::$customCacheDir !== null && self::$customCacheDir !== '') {
+            $dir = self::$customCacheDir;
+        } else {
+            $base = function_exists('appConfig') ? appConfig('app.cachepath') : null;
+            if (empty($base)) {
+                $base = defined('STORAGE') ? STORAGE . '/cache' : sys_get_temp_dir();
+            }
+            $dir = rtrim($base, '/\\') . '/geolocation';
+        }
+
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        return $dir;
+    }
+
+    /**
+     * Set custom reverse geocoder config override
+     */
+    public static function setReverseGeocoderConfig(?array $config): void {
+        self::$customReverseGeocoderConfig = $config;
+        self::$reverseGeoCache = [];
+    }
+
+    /**
+     * Get effective reverse geocoder configuration
+     */
+    public static function getReverseGeocoderConfig(): array {
+        if (self::$customReverseGeocoderConfig !== null) {
+            return self::$customReverseGeocoderConfig;
+        }
+        $cfg = function_exists('appConfig') ? appConfig('app.reverse_geocoder') : null;
+        return is_array($cfg) ? $cfg : [];
+    }
+
+    /**
+     * Set custom secondary IP provider config override
+     */
+    public static function setSecondaryProviderConfig(?array $config): void {
+        self::$customSecondaryConfig = $config;
+        self::$memoryCache = [];
+    }
+
+    /**
+     * Get effective secondary IP provider configuration
+     */
+    public static function getSecondaryProviderConfig(): array {
+        if (self::$customSecondaryConfig !== null) {
+            return self::$customSecondaryConfig;
+        }
+        $cfg = function_exists('appConfig') ? appConfig('app.geosecondary') : null;
+        return is_array($cfg) ? $cfg : [];
+    }
 
     /**
      * Set a mock reader for unit testing
@@ -182,6 +315,7 @@ class GeoLocation {
      */
     public static function setMockSecondary($callableOrArray): void {
         self::$mockSecondary = $callableOrArray;
+        self::$memoryCache = [];
     }
 
     /**
@@ -189,6 +323,14 @@ class GeoLocation {
      */
     public static function setMockReverseGeocoder($callableOrArray): void {
         self::$mockReverseGeocoder = $callableOrArray;
+        self::$reverseGeoCache = [];
+    }
+
+    /**
+     * Set a mock HTTP transport callable(string $url, float $timeout, array $headers): ?string
+     */
+    public static function setMockHttpTransport(?callable $transport): void {
+        self::$mockHttpTransport = $transport;
         self::$reverseGeoCache = [];
     }
 
@@ -208,18 +350,133 @@ class GeoLocation {
     }
 
     /**
-     * Clear resolution caches and mocks
+     * Clear resolution caches, shared cache files, and mocks
      */
-    public static function clearCache(): void {
+    public static function clearCache(bool $clearSharedFiles = true): void {
+        if ($clearSharedFiles) {
+            self::purgeSharedCacheFiles();
+        }
         self::$memoryCache = [];
         self::$reverseGeoCache = [];
         self::$mockReader = null;
         self::$mockSecondary = null;
         self::$mockReverseGeocoder = null;
+        self::$mockHttpTransport = null;
+        self::$customReverseGeocoderConfig = null;
+        self::$customSecondaryConfig = null;
+        self::$testTimestamp = null;
         self::$boundariesData = null;
         self::$customBoundariesPath = null;
         self::$statsColumnsCache = null;
-        self::$geocoderMetrics = [
+    }
+
+    /**
+     * Purge only L1 in-memory caches (simulating a new PHP-FPM worker process while keeping shared disk cache)
+     */
+    public static function resetWorkerMemory(): void {
+        self::$memoryCache = [];
+        self::$reverseGeoCache = [];
+    }
+
+    /**
+     * Purge shared cache files and rate-limit state from disk
+     */
+    public static function purgeSharedCacheFiles(): void {
+        $dir = self::getCacheDirectory();
+        if (!is_dir($dir)) {
+            return;
+        }
+        $files = @glob($dir . '/*.json');
+        if (is_array($files)) {
+            foreach ($files as $file) {
+                @unlink($file);
+            }
+        }
+    }
+
+    /**
+     * Read an item from the cross-process shared cache with strict TTL expiration enforcement
+     */
+    protected static function sharedCacheGet(string $namespace, string $key): ?array {
+        $dir = self::getCacheDirectory();
+        $file = $dir . '/' . $namespace . '_' . sha1($key) . '.json';
+        if (!file_exists($file) || !is_readable($file)) {
+            return null;
+        }
+
+        $fp = @fopen($file, 'rb');
+        if (!$fp) {
+            return null;
+        }
+
+        $payload = null;
+        if (@flock($fp, LOCK_SH)) {
+            $raw = stream_get_contents($fp);
+            @flock($fp, LOCK_UN);
+            if (is_string($raw) && $raw !== '') {
+                $payload = json_decode($raw, true);
+            }
+        }
+        @fclose($fp);
+
+        if (!is_array($payload) || !isset($payload['expires_at']) || !isset($payload['value']) || !is_array($payload['value'])) {
+            @unlink($file);
+            return null;
+        }
+
+        if (self::currentTime() > (int) $payload['expires_at']) {
+            @unlink($file);
+            return null;
+        }
+
+        return $payload['value'];
+    }
+
+    /**
+     * Write an item to the cross-process shared cache with TTL expiration
+     */
+    protected static function sharedCacheSet(string $namespace, string $key, array $value, int $ttl): void {
+        if ($ttl <= 0) {
+            return;
+        }
+
+        $dir = self::getCacheDirectory();
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $file = $dir . '/' . $namespace . '_' . sha1($key) . '.json';
+        $now = self::currentTime();
+        $data = json_encode([
+            'created_at' => $now,
+            'expires_at' => $now + $ttl,
+            'value'      => $value,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        if ($data === false) {
+            return;
+        }
+
+        $fp = @fopen($file, 'cb');
+        if (!$fp) {
+            return;
+        }
+
+        if (@flock($fp, LOCK_EX)) {
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, $data);
+            fflush($fp);
+            @flock($fp, LOCK_UN);
+        }
+        @fclose($fp);
+    }
+
+    /**
+     * Update or read shared cross-process rate-limit & quota state atomically using flock(LOCK_EX)
+     */
+    protected static function mutateSharedQuotaState(callable $mutator): array {
+        $defaultState = [
             'requests_total'       => 0,
             'cache_hits'           => 0,
             'quota_exceeded_count' => 0,
@@ -228,14 +485,75 @@ class GeoLocation {
             'minute_count'         => 0,
             'day_window'           => '',
             'day_count'            => 0,
+            'last_request_time'    => 0,
         ];
+
+        $dir = self::getCacheDirectory();
+        $file = $dir . '/ratelimit_state.json';
+        $fp = @fopen($file, 'c+b');
+        if (!$fp) {
+            return $mutator($defaultState);
+        }
+
+        $state = $defaultState;
+        if (@flock($fp, LOCK_EX)) {
+            rewind($fp);
+            $raw = stream_get_contents($fp);
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $state = array_merge($defaultState, $decoded);
+                }
+            }
+
+            $state = $mutator($state);
+
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, json_encode($state, JSON_UNESCAPED_SLASHES));
+            fflush($fp);
+            @flock($fp, LOCK_UN);
+        }
+        @fclose($fp);
+
+        return $state;
     }
 
     /**
-     * Get reverse geocoder usage and cost/quota telemetry
+     * Get reverse geocoder usage and cost/quota telemetry across PHP processes
      */
     public static function getReverseGeocoderStats(): array {
-        return self::$geocoderMetrics;
+        return self::mutateSharedQuotaState(function (array $state) {
+            return $state;
+        });
+    }
+
+    /**
+     * Get list of supported reverse geocoding providers
+     */
+    public static function getSupportedReverseGeocoders(): array {
+        return self::$supportedReverseProviders;
+    }
+
+    /**
+     * Get active reverse geocoder status and privacy disclosure metadata
+     */
+    public static function getReverseGeocoderProviderInfo(): array {
+        $config = self::getReverseGeocoderConfig();
+        $provider = strtolower(trim((string) ($config['provider'] ?? 'opencage')));
+        $enabled = self::isReverseGeocoderEnabled();
+        $providerMeta = self::$supportedReverseProviders[$provider] ?? null;
+
+        return [
+            'enabled'        => $enabled,
+            'provider'       => $provider,
+            'provider_name'  => $providerMeta['name'] ?? ($enabled && self::$mockReverseGeocoder !== null ? 'Configured Reverse Geocoder' : null),
+            'supported'      => $providerMeta !== null,
+            'requires_key'   => $providerMeta['requires_key'] ?? true,
+            'has_api_key'    => !empty($config['api_key']),
+            'tos_accepted'   => !isset($config['tos_accepted']) || !empty($config['tos_accepted']),
+            'sends_external' => $enabled,
+        ];
     }
 
     /**
@@ -286,20 +604,24 @@ class GeoLocation {
         }
 
         $defaultResult = [
-            'continent'       => null,
-            'continent_code'  => null,
-            'country'         => null,
-            'country_code'    => null,
-            'region'          => null,
-            'region_code'     => null,
-            'city'            => null,
-            'postal_code'     => null,
-            'latitude'        => null,
-            'longitude'       => null,
-            'accuracy_radius' => null,
-            'source'          => 'unknown',
-            'precision'       => 'unknown',
-            'missing_reason'  => null,
+            'continent'                => null,
+            'continent_code'           => null,
+            'country'                  => null,
+            'country_code'             => null,
+            'region'                   => null,
+            'region_code'              => null,
+            'city'                     => null,
+            'postal_code'              => null,
+            'latitude'                 => null,
+            'longitude'                => null,
+            'declared_accuracy_meters' => null,
+            'accuracy_radius'          => null,
+            'source'                   => 'unknown',
+            'provider'                 => 'none',
+            'verified'                 => false,
+            'location_level'           => 'unknown',
+            'precision'                => 'unknown',
+            'missing_reason'           => null,
         ];
 
         // 1. IP Validation
@@ -317,9 +639,16 @@ class GeoLocation {
         // 3. Try primary provider (MaxMind MMDB)
         $result = self::resolveMaxMind($ip);
 
-        // 4. If city is undetermined and a secondary provider is configured & enabled
+        // 4. Normalize Madagascar region codes if applicable
+        if ($result['country_code'] === 'MG' && (!empty($result['region']) || !empty($result['city']))) {
+            $mgAdmin = self::normalizeMadagascarAdmin($result['region'], $result['region_code'], $result['city']);
+            $result['region'] = $mgAdmin['region'];
+            $result['region_code'] = $mgAdmin['region_code'];
+        }
+
+        // 5. If city is undetermined and a secondary provider is configured & enabled
         if (empty($result['city']) && self::isSecondaryProviderEnabled()) {
-            $secondaryResult = self::resolveSecondary($ip);
+            $secondaryResult = self::resolveSecondary($ip, $bypassCache);
             if ($secondaryResult !== null) {
                 $result['country'] = $secondaryResult['country'] ?: $result['country'];
                 $result['country_code'] = $secondaryResult['country_code'] ?: $result['country_code'];
@@ -328,6 +657,14 @@ class GeoLocation {
                 $result['city'] = $secondaryResult['city'] ?: $result['city'];
                 $result['accuracy_radius'] = $secondaryResult['accuracy_radius'] ?? $result['accuracy_radius'];
                 $result['source'] = 'secondary_provider';
+                $result['provider'] = $secondaryResult['provider'] ?? 'secondary';
+                $result['verified'] = true;
+
+                if ($result['country_code'] === 'MG') {
+                    $mgAdmin = self::normalizeMadagascarAdmin($result['region'], $result['region_code'], $result['city']);
+                    $result['region'] = $mgAdmin['region'];
+                    $result['region_code'] = $mgAdmin['region_code'];
+                }
 
                 if (empty($result['continent_code']) && !empty($result['country_code'])) {
                     $cont = self::getContinentForCountry($result['country_code']);
@@ -336,11 +673,17 @@ class GeoLocation {
                 }
 
                 if (!empty($result['city'])) {
+                    $result['location_level'] = 'city';
                     $result['precision'] = 'city';
                     $result['missing_reason'] = null;
                 } elseif (!empty($result['region'])) {
+                    $result['location_level'] = 'region';
                     $result['precision'] = 'region';
                     $result['missing_reason'] = 'region_level_only';
+                } elseif (!empty($result['country'])) {
+                    $result['location_level'] = 'country';
+                    $result['precision'] = 'country';
+                    $result['missing_reason'] = 'country_level_only';
                 }
             }
         }
@@ -353,20 +696,24 @@ class GeoLocation {
      */
     protected static function resolveMaxMind(string $ip): array {
         $data = [
-            'continent'       => null,
-            'continent_code'  => null,
-            'country'         => null,
-            'country_code'    => null,
-            'region'          => null,
-            'region_code'     => null,
-            'city'            => null,
-            'postal_code'     => null,
-            'latitude'        => null,
-            'longitude'       => null,
-            'accuracy_radius' => null,
-            'source'          => 'maxmind',
-            'precision'       => 'unknown',
-            'missing_reason'  => null,
+            'continent'                => null,
+            'continent_code'           => null,
+            'country'                  => null,
+            'country_code'             => null,
+            'region'                   => null,
+            'region_code'              => null,
+            'city'                     => null,
+            'postal_code'              => null,
+            'latitude'                 => null,
+            'longitude'                => null,
+            'declared_accuracy_meters' => null,
+            'accuracy_radius'          => null,
+            'source'                   => 'maxmind',
+            'provider'                 => 'maxmind_geolite2',
+            'verified'                 => false,
+            'location_level'           => 'unknown',
+            'precision'                => 'unknown',
+            'missing_reason'           => null,
         ];
 
         $geopath = appConfig('app.geopath') ?: (defined('STORAGE') ? STORAGE . '/app/GeoLite2-City.mmdb' : null);
@@ -376,6 +723,7 @@ class GeoLocation {
         } else {
             if (empty($geopath) || !file_exists($geopath) || !is_readable($geopath)) {
                 $data['source'] = 'unknown';
+                $data['provider'] = 'none';
                 $data['missing_reason'] = 'database_missing';
                 return $data;
             }
@@ -383,6 +731,7 @@ class GeoLocation {
                 $reader = new \MaxMind\Db\Reader($geopath);
             } catch (\Exception $e) {
                 $data['source'] = 'unknown';
+                $data['provider'] = 'none';
                 $data['missing_reason'] = 'technical_error';
                 return $data;
             }
@@ -431,12 +780,18 @@ class GeoLocation {
             $data['accuracy_radius'] = $record['location']['accuracy_radius'] ?? null;
 
             if (!empty($data['city'])) {
+                $data['verified'] = true;
+                $data['location_level'] = 'city';
                 $data['precision'] = 'city';
                 $data['missing_reason'] = null;
             } elseif (!empty($data['region'])) {
+                $data['verified'] = true;
+                $data['location_level'] = 'region';
                 $data['precision'] = 'region';
                 $data['missing_reason'] = 'region_level_only';
             } elseif (!empty($data['country'])) {
+                $data['verified'] = true;
+                $data['location_level'] = 'country';
                 $data['precision'] = 'country';
                 $data['missing_reason'] = 'country_level_only';
             } else {
@@ -446,6 +801,7 @@ class GeoLocation {
             return $data;
         } catch (\Exception $e) {
             $data['source'] = 'unknown';
+            $data['provider'] = 'none';
             $data['missing_reason'] = 'technical_error';
             return $data;
         }
@@ -459,42 +815,46 @@ class GeoLocation {
             return true;
         }
 
-        $config = appConfig('app.geosecondary');
-        if (!is_array($config)) {
-            return false;
-        }
-
+        $config = self::getSecondaryProviderConfig();
         return !empty($config['enabled']) && !empty($config['api_key']);
     }
 
     /**
-     * Resolve via secondary IP provider (with strict timeouts & circuit breaker)
+     * Resolve via secondary IP provider (with cross-process cache, strict timeouts & failure isolation)
      */
-    protected static function resolveSecondary(string $ip): ?array {
-        if (self::$mockSecondary !== null) {
-            if (is_callable(self::$mockSecondary)) {
-                return call_user_func(self::$mockSecondary, $ip);
+    protected static function resolveSecondary(string $ip, bool $bypassCache = false): ?array {
+        $config = self::getSecondaryProviderConfig();
+        $ttl = isset($config['cache_ttl']) ? (int) $config['cache_ttl'] : 86400;
+
+        if (!$bypassCache && $ttl > 0) {
+            $cached = self::sharedCacheGet('ip_sec', $ip);
+            if ($cached !== null) {
+                return $cached;
             }
-            return is_array(self::$mockSecondary) ? self::$mockSecondary : null;
         }
 
-        $config = appConfig('app.geosecondary');
-        if (!is_array($config) || empty($config['enabled']) || empty($config['api_key'])) {
+        if (self::$mockSecondary !== null) {
+            $res = is_callable(self::$mockSecondary)
+                ? call_user_func(self::$mockSecondary, $ip)
+                : (is_array(self::$mockSecondary) ? self::$mockSecondary : null);
+            if (is_array($res)) {
+                $res['provider'] = $res['provider'] ?? 'mock_secondary';
+                if ($ttl > 0) {
+                    self::sharedCacheSet('ip_sec', $ip, $res, $ttl);
+                }
+                return $res;
+            }
             return null;
         }
 
-        $provider = $config['provider'] ?? 'ipinfo';
+        if (empty($config['enabled']) || empty($config['api_key'])) {
+            return null;
+        }
+
+        $provider = strtolower((string) ($config['provider'] ?? 'ipinfo'));
         $timeout = isset($config['timeout']) ? (float) $config['timeout'] : 1.5;
 
         try {
-            $context = stream_context_create([
-                'http' => [
-                    'timeout' => $timeout,
-                    'ignore_errors' => true,
-                    'header' => "User-Agent: Codex-GeoClient/1.0\r\n",
-                ],
-            ]);
-
             if ($provider === 'ipinfo') {
                 $url = "https://ipinfo.io/{$ip}/json?token=" . urlencode($config['api_key']);
             } elseif ($provider === 'ipapi') {
@@ -503,8 +863,8 @@ class GeoLocation {
                 return null;
             }
 
-            $raw = @file_get_contents($url, false, $context);
-            if ($raw === false) {
+            $raw = self::executeHttpGet($url, $timeout, ["User-Agent: Codex-GeoClient/1.0"]);
+            if ($raw === null) {
                 return null;
             }
 
@@ -518,21 +878,28 @@ class GeoLocation {
             $country = !empty($json['country_name']) ? trim($json['country_name']) : (!empty($json['country']) ? trim($json['country']) : null);
             $countryCode = !empty($json['country']) && strlen($json['country']) === 2 ? strtoupper($json['country']) : null;
 
-            return [
+            $resolved = [
                 'country'         => $country,
                 'country_code'    => $countryCode,
                 'region'          => $region,
-                'region_code'     => null,
+                'region_code'     => !empty($json['region_code']) && $countryCode ? "{$countryCode}-" . strtoupper($json['region_code']) : null,
                 'city'            => $city,
                 'accuracy_radius' => null,
+                'provider'        => $provider,
             ];
+
+            if ($ttl > 0) {
+                self::sharedCacheSet('ip_sec', $ip, $resolved, $ttl);
+            }
+
+            return $resolved;
         } catch (\Throwable $e) {
             return null;
         }
     }
 
     /**
-     * Format a display name according to the mandated 3-level geographic hierarchy:
+     * Format a display name according to the 3-level geographic hierarchy:
      * - Level 1 (Known city): "City, Country"
      * - Level 2 (Unknown city, known region): "Région : Region — ville non déterminée, Country"
      * - Level 3 (Country only): "Country — ville non déterminée"
@@ -663,7 +1030,7 @@ class GeoLocation {
     }
 
     /**
-     * Load the administrative boundary polygons dataset from storage/app/geo_boundaries.json
+     * Load the administrative boundary registry / dataset from storage/app/geo_boundaries.json
      */
     protected static function getBoundariesData(): array {
         if (self::$boundariesData !== null) {
@@ -672,27 +1039,158 @@ class GeoLocation {
 
         $path = self::$customBoundariesPath;
         if (!$path) {
-            $cfg = appConfig('app.reverse_geocoder');
-            $path = is_array($cfg) && !empty($cfg['boundaries_path'])
+            $cfg = self::getReverseGeocoderConfig();
+            $path = !empty($cfg['boundaries_path'])
                 ? $cfg['boundaries_path']
                 : (defined('STORAGE') ? STORAGE . '/app/geo_boundaries.json' : dirname(__DIR__, 2) . '/storage/app/geo_boundaries.json');
         }
 
         if (!$path || !file_exists($path) || !is_readable($path)) {
-            return self::$boundariesData = ['countries' => []];
+            return self::$boundariesData = ['authoritative_polygons' => false, 'madagascar_regions' => [], 'countries' => []];
         }
 
         $raw = @file_get_contents($path);
         if ($raw === false) {
-            return self::$boundariesData = ['countries' => []];
+            return self::$boundariesData = ['authoritative_polygons' => false, 'madagascar_regions' => [], 'countries' => []];
         }
 
         $decoded = json_decode($raw, true);
-        if (!is_array($decoded) || !isset($decoded['countries'])) {
-            return self::$boundariesData = ['countries' => []];
+        if (!is_array($decoded)) {
+            return self::$boundariesData = ['authoritative_polygons' => false, 'madagascar_regions' => [], 'countries' => []];
         }
 
         return self::$boundariesData = $decoded;
+    }
+
+    /**
+     * Get the registry of Madagascar's 23 administrative regions with unique codes
+     */
+    public static function getMadagascarRegionsRegistry(): array {
+        $data = self::getBoundariesData();
+        if (!empty($data['madagascar_regions']) && is_array($data['madagascar_regions'])) {
+            return $data['madagascar_regions'];
+        }
+
+        $defaultPath = defined('STORAGE') ? STORAGE . '/app/geo_boundaries.json' : dirname(__DIR__, 2) . '/storage/app/geo_boundaries.json';
+        if (file_exists($defaultPath) && is_readable($defaultPath)) {
+            $defaultData = json_decode(@file_get_contents($defaultPath), true);
+            if (!empty($defaultData['madagascar_regions']) && is_array($defaultData['madagascar_regions'])) {
+                return $defaultData['madagascar_regions'];
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Normalize Madagascar administrative region and code to ensure unique identifiers
+     * across all 23 regions (avoiding duplicate province codes MG-T, MG-F, etc.)
+     */
+    public static function normalizeMadagascarAdmin(?string $region, ?string $regionCode, ?string $city): array {
+        $region = $region !== null ? trim($region) : null;
+        $regionCode = $regionCode !== null ? strtoupper(trim($regionCode)) : null;
+        $city = $city !== null ? trim($city) : null;
+
+        $registry = self::getMadagascarRegionsRegistry();
+        if (empty($registry)) {
+            return ['region' => $region, 'region_code' => $regionCode];
+        }
+
+        $normRegion = $region !== null ? mb_strtolower( str_replace(['region', 'région', 'province de ', 'province d\'', 'faritanin\'i '], '', $region), 'UTF-8') : '';
+        $normRegion = trim($normRegion);
+        $normCity = $city !== null ? mb_strtolower($city, 'UTF-8') : '';
+
+        // 1. Direct match by unique region code or region name
+        foreach ($registry as $entry) {
+            $entryNameLower = mb_strtolower($entry['name'], 'UTF-8');
+            $entryCodeUpper = strtoupper($entry['code']);
+
+            if ($regionCode === $entryCodeUpper || ($normRegion !== '' && $normRegion === $entryNameLower)) {
+                return [
+                    'region'      => $entry['name'],
+                    'region_code' => $entryCodeUpper,
+                ];
+            }
+        }
+
+        // 2. Legacy Vatovavy-Fitovinany split (2021) or province-level response disambiguated by known commune
+        if ($normCity !== '') {
+            foreach ($registry as $entry) {
+                $communes = array_map(function ($c) {
+                    return mb_strtolower($c, 'UTF-8');
+                }, $entry['communes'] ?? []);
+
+                if (in_array($normCity, $communes, true)) {
+                    // Only map from commune if region was missing, was a legacy combined region, or was a province name
+                    $isProvinceOrLegacy = ($normRegion === '' ||
+                        strpos($normRegion, 'vatovavy') !== false ||
+                        strpos($normRegion, 'fitovinany') !== false ||
+                        in_array($regionCode, ['MG-T', 'MG-F', 'MG-A', 'MG-M', 'MG-D', 'MG-U'], true) ||
+                        mb_strtolower($entry['province_name'] ?? '', 'UTF-8') === $normRegion);
+
+                    if ($isProvinceOrLegacy) {
+                        return [
+                            'region'      => $entry['name'],
+                            'region_code' => strtoupper($entry['code']),
+                        ];
+                    }
+                }
+            }
+        }
+
+        return ['region' => $region, 'region_code' => $regionCode];
+    }
+
+    /**
+     * Verify whether a polygon represents a true multi-vertex administrative boundary
+     * rather than a synthetic 4-corner bounding box rectangle.
+     *
+     * @param array $polygon Array of [lon, lat] vertices
+     * @return bool
+     */
+    public static function isAuthoritativePolygon(array $polygon): bool {
+        $n = count($polygon);
+        if ($n < 6) {
+            return false;
+        }
+
+        // Collect unique vertices (excluding closing vertex if identical to first)
+        $uniqueVertices = [];
+        $uniqueLons = [];
+        $uniqueLats = [];
+
+        foreach ($polygon as $pt) {
+            if (!is_array($pt) || count($pt) < 2 || !is_numeric($pt[0]) || !is_numeric($pt[1])) {
+                return false;
+            }
+            $lonKey = number_format((float) $pt[0], 5, '.', '');
+            $latKey = number_format((float) $pt[1], 5, '.', '');
+            $uniqueVertices["{$lonKey},{$latKey}"] = true;
+            $uniqueLons[$lonKey] = true;
+            $uniqueLats[$latKey] = true;
+        }
+
+        // A true administrative boundary polygon must have at least 6 unique vertices
+        // and cannot be an axis-aligned rectangle (which only has 2 distinct longitudes and 2 distinct latitudes)
+        if (count($uniqueVertices) < 6 || (count($uniqueLons) <= 2 && count($uniqueLats) <= 2)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Check whether the loaded boundary dataset contains verified authoritative polygons
+     */
+    public static function hasAuthoritativeLocalBoundaries(): bool {
+        $data = self::getBoundariesData();
+        if (empty($data['authoritative_polygons']) || $data['authoritative_polygons'] !== true) {
+            return false;
+        }
+        if (empty($data['countries']) || !is_array($data['countries'])) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -797,12 +1295,12 @@ class GeoLocation {
      * Resolve administrative location from browser coordinates (HTTPS browser consent).
      *
      * Rules enforced:
-     * 1. No hardcoded 12-city center distance approximations.
-     * 2. Uses true administrative polygon boundaries (`storage/app/geo_boundaries.json`) +
-     *    configurable worldwide reverse geocoding service.
-     * 3. Degrades precision when GPS accuracy (`accuracyMeters`) is too coarse or when the
-     *    uncertainty circle crosses an administrative boundary (`border_uncertainty`).
-     * 4. Never claims browser coordinates are server-verified (`verified => false`, `source => 'browser_consent'`).
+     * 1. Never uses approximate or rectangular polygons to assign a city or region.
+     * 2. Queries the configured worldwide reverse geocoding service as primary source,
+     *    only using local boundaries when they come from a verified authoritative multi-vertex GeoJSON dataset.
+     * 3. Never defaults a missing GPS accuracy (`null`) to 50m; missing accuracy caps resolution at region/country.
+     * 4. Distinguishes `declared_accuracy_meters`, `accuracy_radius` (km), `source`, `provider`, and `location_level`.
+     * 5. Never claims browser coordinates are server-verified (`verified => false`, `source => 'browser_consent'`).
      *
      * @param float $lat
      * @param float $lon
@@ -811,51 +1309,81 @@ class GeoLocation {
      */
     public static function resolveCoordinates(float $lat, float $lon, ?float $accuracyMeters = null): array {
         $baseResult = [
-            'continent'       => null,
-            'continent_code'  => null,
-            'country'         => null,
-            'country_code'    => null,
-            'region'          => null,
-            'region_code'     => null,
-            'admin_type'      => null,
-            'city'            => null,
-            'accuracy_radius' => null,
-            'source'          => 'browser_consent',
-            'verified'        => false,
-            'precision'       => 'unknown',
-            'missing_reason'  => null,
+            'continent'                => null,
+            'continent_code'           => null,
+            'country'                  => null,
+            'country_code'             => null,
+            'region'                   => null,
+            'region_code'              => null,
+            'admin_type'               => null,
+            'city'                     => null,
+            'declared_accuracy_meters' => null,
+            'accuracy_radius'          => null,
+            'source'                   => 'browser_consent',
+            'provider'                 => 'none',
+            'verified'                 => false,
+            'location_level'           => 'unknown',
+            'precision'                => 'unknown',
+            'missing_reason'           => null,
         ];
 
+        // 1. Validate coordinate bounds
         if (!is_finite($lat) || !is_finite($lon) || $lat < -90.0 || $lat > 90.0 || $lon < -180.0 || $lon > 180.0) {
             $baseResult['missing_reason'] = 'invalid_coordinates';
             return $baseResult;
         }
 
-        // Convert accuracy in meters to kilometers (default 0.05 km = 50m when unspecified)
-        $effectiveAccuracyMeters = ($accuracyMeters !== null && $accuracyMeters >= 0) ? (float) $accuracyMeters : 50.0;
-        $accuracyKm = round(max(0.01, $effectiveAccuracyMeters / 1000.0), 2);
-        $baseResult['accuracy_radius'] = $accuracyKm;
+        // 2. Validate GPS accuracy (NEVER assume 50m when accuracyMeters is null!)
+        $hasDeclaredAccuracy = ($accuracyMeters !== null);
+        $declaredAccuracyMeters = null;
+        $accuracyKm = null;
 
-        // 1. Evaluate against local administrative boundary polygons
-        $localMatch = self::resolveViaPolygonBoundaries($lat, $lon);
-
-        // 2. If not resolved to a city or region and external reverse geocoder is enabled, query it
-        $externalMatch = null;
-        if ((empty($localMatch['country']) || empty($localMatch['city'])) && self::isReverseGeocoderEnabled()) {
-            $externalMatch = self::resolveExternalReverseGeocoder($lat, $lon);
+        if ($hasDeclaredAccuracy) {
+            if (!is_finite($accuracyMeters) || $accuracyMeters <= 0.0 || $accuracyMeters > 1000000.0) {
+                $baseResult['missing_reason'] = 'invalid_gps_accuracy';
+                return $baseResult;
+            }
+            $declaredAccuracyMeters = round((float) $accuracyMeters, 2);
+            $accuracyKm = round($declaredAccuracyMeters / 1000.0, 3);
+            $baseResult['declared_accuracy_meters'] = $declaredAccuracyMeters;
+            $baseResult['accuracy_radius'] = $accuracyKm;
         }
 
-        // Merge local polygon match with external reverse geocoder match
-        $continent = $localMatch['continent'] ?? ($externalMatch['continent'] ?? null);
-        $continentCode = $localMatch['continent_code'] ?? ($externalMatch['continent_code'] ?? null);
-        $country = $localMatch['country'] ?? ($externalMatch['country'] ?? null);
-        $countryCode = $localMatch['country_code'] ?? ($externalMatch['country_code'] ?? null);
-        $region = $localMatch['region'] ?? ($externalMatch['region'] ?? null);
-        $regionCode = $localMatch['region_code'] ?? ($externalMatch['region_code'] ?? null);
-        $adminType = $localMatch['admin_type'] ?? ($externalMatch['admin_type'] ?? null);
-        $city = $localMatch['city'] ?? ($externalMatch['city'] ?? null);
-        $regionBorderDistKm = $localMatch['region_border_dist_km'] ?? INF;
-        $cityBorderDistKm = $localMatch['city_border_dist_km'] ?? INF;
+        // 3. Provider resolution priority:
+        //    - External worldwide reverse geocoder is queried first whenever enabled.
+        //    - Local polygons are ONLY consulted if they are verified authoritative multi-vertex boundaries.
+        $externalEnabled = self::isReverseGeocoderEnabled();
+        $externalMatch = null;
+        $externalErrorReason = null;
+
+        if ($externalEnabled) {
+            $externalMatch = self::resolveExternalReverseGeocoder($lat, $lon, $externalErrorReason);
+        }
+
+        $localMatch = null;
+        if (self::hasAuthoritativeLocalBoundaries()) {
+            $localMatch = self::resolveViaPolygonBoundaries($lat, $lon);
+        }
+
+        // Merge with priority to external reverse geocoder for city/region/country,
+        // falling back to verified authoritative local polygons if external is disabled or incomplete
+        $continent = $externalMatch['continent'] ?? ($localMatch['continent'] ?? null);
+        $continentCode = $externalMatch['continent_code'] ?? ($localMatch['continent_code'] ?? null);
+        $country = $externalMatch['country'] ?? ($localMatch['country'] ?? null);
+        $countryCode = $externalMatch['country_code'] ?? ($localMatch['country_code'] ?? null);
+        $region = $externalMatch['region'] ?? ($localMatch['region'] ?? null);
+        $regionCode = $externalMatch['region_code'] ?? ($localMatch['region_code'] ?? null);
+        $adminType = $externalMatch['admin_type'] ?? ($localMatch['admin_type'] ?? null);
+        $city = $externalMatch['city'] ?? ($localMatch['city'] ?? null);
+
+        $regionBorderDistKm = $externalMatch['region_border_dist_km'] ?? ($localMatch['region_border_dist_km'] ?? INF);
+        $cityBorderDistKm = $externalMatch['city_border_dist_km'] ?? ($localMatch['city_border_dist_km'] ?? INF);
+
+        if ($externalMatch !== null && !empty($externalMatch['country'])) {
+            $baseResult['provider'] = $externalMatch['provider'] ?? 'external_reverse_geocoder';
+        } elseif ($localMatch !== null && !empty($localMatch['country'])) {
+            $baseResult['provider'] = 'local_authoritative';
+        }
 
         if (empty($continentCode) && !empty($countryCode)) {
             $cont = self::getContinentForCountry($countryCode);
@@ -863,9 +1391,22 @@ class GeoLocation {
             $continentCode = $cont['code'];
         }
 
-        // If no country could be identified (e.g., ocean / international waters / unmapped territory)
+        // Normalize Madagascar administrative identifiers to eliminate duplicate province codes (MG-T, MG-F, etc.)
+        if ($countryCode === 'MG') {
+            $mgAdmin = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+            $region = $mgAdmin['region'];
+            $regionCode = $mgAdmin['region_code'];
+        }
+
+        // If no country could be identified
         if (empty($country)) {
-            $baseResult['missing_reason'] = 'out_of_coverage';
+            if ($externalErrorReason !== null) {
+                $baseResult['missing_reason'] = $externalErrorReason;
+            } elseif (!$externalEnabled && !self::hasAuthoritativeLocalBoundaries()) {
+                $baseResult['missing_reason'] = 'reverse_geocoder_disabled';
+            } else {
+                $baseResult['missing_reason'] = 'out_of_coverage';
+            }
             return $baseResult;
         }
 
@@ -875,24 +1416,46 @@ class GeoLocation {
         $baseResult['country_code'] = $countryCode;
         $baseResult['admin_type'] = $adminType;
 
-        // 3. Enforce GPS accuracy & administrative border proximity rules:
-        // Rule A: Accuracy worse than 50 km -> cannot reliably attribute region or city
-        if ($effectiveAccuracyMeters > 50000.0) {
+        // 4. Enforce GPS accuracy & administrative border proximity rules:
+
+        // Rule A: Missing GPS accuracy (`$declaredAccuracyMeters === null`)
+        // Never assume 50m! Without a declared accuracy radius, we cannot confirm urban commune precision.
+        if (!$hasDeclaredAccuracy) {
+            $baseResult['city'] = null;
+            if (!empty($region)) {
+                $baseResult['region'] = $region;
+                $baseResult['region_code'] = $regionCode;
+                $baseResult['location_level'] = 'region';
+                $baseResult['precision'] = 'region';
+            } else {
+                $baseResult['region'] = null;
+                $baseResult['region_code'] = null;
+                $baseResult['location_level'] = 'country';
+                $baseResult['precision'] = 'country';
+            }
+            $baseResult['missing_reason'] = 'missing_gps_accuracy';
+            return $baseResult;
+        }
+
+        // Rule B: Accuracy worse than 50 km -> cannot reliably attribute region or city
+        if ($declaredAccuracyMeters > 50000.0) {
             $baseResult['region'] = null;
             $baseResult['region_code'] = null;
             $baseResult['city'] = null;
+            $baseResult['location_level'] = 'country';
             $baseResult['precision'] = 'country';
             $baseResult['missing_reason'] = 'low_gps_accuracy';
             return $baseResult;
         }
 
-        // Rule B: Region border uncertainty check
+        // Rule C: Region border uncertainty check
         // If the GPS uncertainty circle crosses the regional border, do not attribute a potentially wrong region
         if (!empty($region) && $regionBorderDistKm < INF) {
-            if ($effectiveAccuracyMeters >= 500.0 && $accuracyKm > $regionBorderDistKm) {
+            if ($declaredAccuracyMeters >= 500.0 && $accuracyKm > $regionBorderDistKm) {
                 $baseResult['region'] = null;
                 $baseResult['region_code'] = null;
                 $baseResult['city'] = null;
+                $baseResult['location_level'] = 'country';
                 $baseResult['precision'] = 'country';
                 $baseResult['missing_reason'] = 'region_border_uncertainty';
                 return $baseResult;
@@ -902,27 +1465,31 @@ class GeoLocation {
         $baseResult['region'] = $region;
         $baseResult['region_code'] = $regionCode;
 
-        // Rule C: Accuracy worse than 5 km -> too coarse to confirm a specific urban commune/city
-        if ($effectiveAccuracyMeters > 5000.0) {
+        // Rule D: Accuracy worse than 5 km -> too coarse to confirm a specific urban commune/city
+        if ($declaredAccuracyMeters > 5000.0) {
             $baseResult['city'] = null;
             if (!empty($region)) {
+                $baseResult['location_level'] = 'region';
                 $baseResult['precision'] = 'region';
                 $baseResult['missing_reason'] = 'low_gps_accuracy_for_city';
             } else {
+                $baseResult['location_level'] = 'country';
                 $baseResult['precision'] = 'country';
                 $baseResult['missing_reason'] = 'low_gps_accuracy';
             }
             return $baseResult;
         }
 
-        // Rule D: City border uncertainty check
+        // Rule E: City border uncertainty check
         if (!empty($city) && $cityBorderDistKm < INF) {
-            if ($effectiveAccuracyMeters >= 250.0 && $accuracyKm > $cityBorderDistKm) {
+            if ($declaredAccuracyMeters >= 250.0 && $accuracyKm > $cityBorderDistKm) {
                 $baseResult['city'] = null;
                 if (!empty($region)) {
+                    $baseResult['location_level'] = 'region';
                     $baseResult['precision'] = 'region';
                     $baseResult['missing_reason'] = 'city_border_uncertainty';
                 } else {
+                    $baseResult['location_level'] = 'country';
                     $baseResult['precision'] = 'country';
                     $baseResult['missing_reason'] = 'city_border_uncertainty';
                 }
@@ -933,12 +1500,15 @@ class GeoLocation {
         $baseResult['city'] = $city;
 
         if (!empty($city)) {
+            $baseResult['location_level'] = 'city';
             $baseResult['precision'] = 'city';
             $baseResult['missing_reason'] = null;
         } elseif (!empty($region)) {
+            $baseResult['location_level'] = 'region';
             $baseResult['precision'] = 'region';
             $baseResult['missing_reason'] = 'outside_urban_commune';
         } else {
+            $baseResult['location_level'] = 'country';
             $baseResult['precision'] = 'country';
             $baseResult['missing_reason'] = 'country_level_only';
         }
@@ -947,7 +1517,8 @@ class GeoLocation {
     }
 
     /**
-     * Match (lat, lon) against administrative boundary polygons in geo_boundaries.json
+     * Match (lat, lon) against verified authoritative multi-vertex polygons ONLY.
+     * Any dataset with authoritative_polygons !== true or any rectangular polygon is ignored.
      */
     protected static function resolveViaPolygonBoundaries(float $lat, float $lon): array {
         $result = [
@@ -963,16 +1534,15 @@ class GeoLocation {
             'city_border_dist_km'   => INF,
         ];
 
-        $dataset = self::getBoundariesData();
-        if (empty($dataset['countries']) || !is_array($dataset['countries'])) {
+        if (!self::hasAuthoritativeLocalBoundaries()) {
             return $result;
         }
 
+        $dataset = self::getBoundariesData();
         $fallbackCountryMatch = null;
 
         foreach ($dataset['countries'] as $countryEntry) {
             if (!empty($countryEntry['bbox'])) {
-                // bbox format: [minLat, minLon, maxLat, maxLon]
                 [$minLat, $minLon, $maxLat, $maxLon] = $countryEntry['bbox'];
                 if ($lat < $minLat || $lat > $maxLat || $lon < $minLon || $lon > $maxLon) {
                     continue;
@@ -984,7 +1554,7 @@ class GeoLocation {
 
             if (!empty($countryEntry['regions']) && is_array($countryEntry['regions'])) {
                 foreach ($countryEntry['regions'] as $regionEntry) {
-                    if (empty($regionEntry['polygon'])) {
+                    if (empty($regionEntry['polygon']) || !self::isAuthoritativePolygon($regionEntry['polygon'])) {
                         continue;
                     }
                     if (self::isPointInPolygon($lat, $lon, $regionEntry['polygon'])) {
@@ -1007,7 +1577,7 @@ class GeoLocation {
 
                 if (!empty($matchedRegion['cities']) && is_array($matchedRegion['cities'])) {
                     foreach ($matchedRegion['cities'] as $cityEntry) {
-                        if (!empty($cityEntry['polygon']) && self::isPointInPolygon($lat, $lon, $cityEntry['polygon'])) {
+                        if (!empty($cityEntry['polygon']) && self::isAuthoritativePolygon($cityEntry['polygon']) && self::isPointInPolygon($lat, $lon, $cityEntry['polygon'])) {
                             $result['city'] = $cityEntry['name'] ?? null;
                             $result['city_border_dist_km'] = self::distanceToPolygonBorderKm($lat, $lon, $cityEntry['polygon']);
                             break;
@@ -1018,10 +1588,9 @@ class GeoLocation {
                 return $result;
             }
 
-            // Only use country-level polygon fallback if the country entry has no regions defined
-            if (empty($countryEntry['regions']) && $fallbackCountryMatch === null) {
+            if ($fallbackCountryMatch === null) {
                 $countryPoly = $countryEntry['polygon'] ?? ($countryEntry['country_polygon'] ?? null);
-                if (!empty($countryPoly) && self::isPointInPolygon($lat, $lon, $countryPoly)) {
+                if (!empty($countryPoly) && self::isAuthoritativePolygon($countryPoly) && self::isPointInPolygon($lat, $lon, $countryPoly)) {
                     $fallbackCountryMatch = $countryEntry;
                 }
             }
@@ -1038,25 +1607,29 @@ class GeoLocation {
     }
 
     /**
-     * Check if external reverse geocoding is enabled
+     * Check if external reverse geocoding is enabled and properly configured
      */
     public static function isReverseGeocoderEnabled(): bool {
         if (self::$mockReverseGeocoder !== null) {
             return true;
         }
 
-        $config = appConfig('app.reverse_geocoder');
-        if (!is_array($config) || empty($config['enabled'])) {
+        $config = self::getReverseGeocoderConfig();
+        if (empty($config['enabled'])) {
             return false;
         }
 
-        $provider = strtolower((string) ($config['provider'] ?? 'opencage'));
-        if (in_array($provider, ['local_polygons', 'none', ''])) {
+        // Verify Terms of Service acceptance if specified
+        if (isset($config['tos_accepted']) && !$config['tos_accepted']) {
             return false;
         }
 
-        // Providers requiring an API key
-        if (in_array($provider, ['opencage', 'mapbox', 'google']) && empty($config['api_key'])) {
+        $provider = strtolower(trim((string) ($config['provider'] ?? 'opencage')));
+        if (!isset(self::$supportedReverseProviders[$provider])) {
+            return false;
+        }
+
+        if (!empty(self::$supportedReverseProviders[$provider]['requires_key']) && empty($config['api_key'])) {
             return false;
         }
 
@@ -1064,183 +1637,506 @@ class GeoLocation {
     }
 
     /**
-     * Resolve coordinates via configurable external reverse geocoder with caching,
-     * rate limiting, daily quota enforcement, timeout, and international normalization.
+     * Execute an HTTP GET request (supports mock transport for testing all provider adapters)
      */
-    protected static function resolveExternalReverseGeocoder(float $lat, float $lon): ?array {
+    protected static function executeHttpGet(string $url, float $timeout, array $headers = []): ?string {
+        if (self::$mockHttpTransport !== null) {
+            $res = call_user_func(self::$mockHttpTransport, $url, $timeout, $headers);
+            return is_string($res) ? $res : null;
+        }
+
+        $headerStr = implode("\r\n", $headers) . "\r\n";
+        $context = stream_context_create([
+            'http' => [
+                'timeout'       => $timeout,
+                'ignore_errors' => false,
+                'header'        => $headerStr,
+            ],
+        ]);
+
+        $raw = @file_get_contents($url, false, $context);
+        if ($raw === false) {
+            return null;
+        }
+
+        return $raw;
+    }
+
+    /**
+     * Resolve coordinates via configurable external reverse geocoder with shared cross-process caching,
+     * rate limiting, daily quota enforcement, timeout, and international normalization.
+     *
+     * Supported providers: 'opencage', 'bigdatacloud', 'nominatim', 'google', 'mapbox'
+     */
+    protected static function resolveExternalReverseGeocoder(float $lat, float $lon, ?string &$errorReason = null): ?array {
+        $config = self::getReverseGeocoderConfig();
+        $provider = strtolower(trim((string) ($config['provider'] ?? 'opencage')));
+        $ttl = isset($config['cache_ttl']) ? (int) $config['cache_ttl'] : 86400;
+
         // Round to ~110m grid cell for privacy and high cache hit ratio
-        $cacheKey = number_format($lat, 3, '.', '') . ',' . number_format($lon, 3, '.', '');
+        $cacheKey = $provider . ':' . number_format($lat, 3, '.', '') . ',' . number_format($lon, 3, '.', '');
 
-        if (isset(self::$reverseGeoCache[$cacheKey])) {
-            self::$geocoderMetrics['cache_hits']++;
-            return self::$reverseGeoCache[$cacheKey];
+        // 1. Check L1 in-memory cache (if TTL > 0)
+        if ($ttl > 0 && isset(self::$reverseGeoCache[$cacheKey])) {
+            $entry = self::$reverseGeoCache[$cacheKey];
+            if (self::currentTime() <= $entry['expires_at']) {
+                self::mutateSharedQuotaState(function (array $state) {
+                    $state['cache_hits']++;
+                    return $state;
+                });
+                return $entry['value'];
+            }
+            unset(self::$reverseGeoCache[$cacheKey]);
         }
 
-        $config = appConfig('app.reverse_geocoder');
-        $maxPerMinute = is_array($config) && isset($config['max_requests_per_minute']) ? (int) $config['max_requests_per_minute'] : 60;
-        $dailyQuota = is_array($config) && isset($config['daily_quota']) ? (int) $config['daily_quota'] : 2500;
-
-        // Enforce rate-limiting & daily cost/quota cap
-        $currentMinute = (int) floor(time() / 60);
-        if (self::$geocoderMetrics['minute_window'] !== $currentMinute) {
-            self::$geocoderMetrics['minute_window'] = $currentMinute;
-            self::$geocoderMetrics['minute_count'] = 0;
+        // 2. Check L2 cross-process shared disk cache (with effective TTL expiration)
+        if ($ttl > 0) {
+            $sharedHit = self::sharedCacheGet('revgeo', $cacheKey);
+            if ($sharedHit !== null) {
+                self::$reverseGeoCache[$cacheKey] = [
+                    'expires_at' => self::currentTime() + $ttl,
+                    'value'      => $sharedHit,
+                ];
+                self::mutateSharedQuotaState(function (array $state) {
+                    $state['cache_hits']++;
+                    return $state;
+                });
+                return $sharedHit;
+            }
         }
-        $currentDay = gmdate('Y-m-d');
-        if (self::$geocoderMetrics['day_window'] !== $currentDay) {
-            self::$geocoderMetrics['day_window'] = $currentDay;
-            self::$geocoderMetrics['day_count'] = 0;
-        }
 
-        if (self::$geocoderMetrics['minute_count'] >= $maxPerMinute || self::$geocoderMetrics['day_count'] >= $dailyQuota) {
-            self::$geocoderMetrics['quota_exceeded_count']++;
+        // 3. Enforce cross-process per-minute rate limit and daily quota atomically
+        $maxPerMinute = isset($config['max_requests_per_minute']) ? (int) $config['max_requests_per_minute'] : 60;
+        $dailyQuota = isset($config['daily_quota']) ? (int) $config['daily_quota'] : 2500;
+        $now = self::currentTime();
+
+        $allowed = true;
+        self::mutateSharedQuotaState(function (array $state) use ($maxPerMinute, $dailyQuota, $now, &$allowed) {
+            $currentMinute = (int) floor($now / 60);
+            if ($state['minute_window'] !== $currentMinute) {
+                $state['minute_window'] = $currentMinute;
+                $state['minute_count'] = 0;
+            }
+
+            $currentDay = gmdate('Y-m-d', $now);
+            if ($state['day_window'] !== $currentDay) {
+                $state['day_window'] = $currentDay;
+                $state['day_count'] = 0;
+            }
+
+            if ($state['minute_count'] >= $maxPerMinute || $state['day_count'] >= $dailyQuota) {
+                $state['quota_exceeded_count']++;
+                $allowed = false;
+                return $state;
+            }
+
+            $state['minute_count']++;
+            $state['day_count']++;
+            $state['requests_total']++;
+            $state['last_request_time'] = $now;
+            return $state;
+        });
+
+        if (!$allowed) {
+            $errorReason = 'quota_exceeded';
             return null;
         }
 
-        self::$geocoderMetrics['minute_count']++;
-        self::$geocoderMetrics['day_count']++;
-        self::$geocoderMetrics['requests_total']++;
-
+        // 4. Handle mock reverse geocoder if set
         if (self::$mockReverseGeocoder !== null) {
-            if (is_callable(self::$mockReverseGeocoder)) {
-                $res = call_user_func(self::$mockReverseGeocoder, $lat, $lon);
-            } else {
-                $res = is_array(self::$mockReverseGeocoder) ? self::$mockReverseGeocoder : null;
+            try {
+                $res = is_callable(self::$mockReverseGeocoder)
+                    ? call_user_func(self::$mockReverseGeocoder, $lat, $lon)
+                    : (is_array(self::$mockReverseGeocoder) ? self::$mockReverseGeocoder : null);
+            } catch (\Throwable $e) {
+                $res = null;
             }
+
             if (is_array($res)) {
-                $normalized = self::normalizeReverseGeocoderResponse($res);
-                return self::$reverseGeoCache[$cacheKey] = $normalized;
+                $normalized = self::normalizeReverseGeocoderResponse($res, $res['_provider'] ?? $provider);
+                if ($normalized !== null && !empty($normalized['country'])) {
+                    $normalized['provider'] = $normalized['provider'] ?? ($res['_provider'] ?? $provider);
+                    if ($ttl > 0) {
+                        self::$reverseGeoCache[$cacheKey] = ['expires_at' => $now + $ttl, 'value' => $normalized];
+                        self::sharedCacheSet('revgeo', $cacheKey, $normalized, $ttl);
+                    }
+                    return $normalized;
+                }
             }
+
+            self::mutateSharedQuotaState(function (array $state) {
+                $state['errors_count']++;
+                return $state;
+            });
+            $errorReason = 'reverse_geocoder_unavailable';
             return null;
         }
 
-        if (!is_array($config) || empty($config['enabled'])) {
+        if (empty($config['enabled'])) {
+            $errorReason = 'reverse_geocoder_disabled';
             return null;
         }
 
-        $provider = strtolower((string) ($config['provider'] ?? 'opencage'));
-        $apiKey = (string) ($config['api_key'] ?? '');
+        $apiKey = trim((string) ($config['api_key'] ?? ''));
+        $endpoint = trim((string) ($config['endpoint'] ?? ''));
         $timeout = isset($config['timeout']) ? (float) $config['timeout'] : 1.5;
         $userAgent = !empty($config['user_agent']) ? $config['user_agent'] : 'QRCodePlatform-GeoResolver/1.0';
 
         try {
-            $context = stream_context_create([
-                'http' => [
-                    'timeout' => $timeout,
-                    'ignore_errors' => true,
-                    'header' => "User-Agent: {$userAgent}\r\nAccept: application/json\r\n",
-                ],
-            ]);
-
-            $url = null;
-            if ($provider === 'opencage' && $apiKey !== '') {
-                $url = 'https://api.opencagedata.com/geocode/v1/json?q=' . urlencode("{$lat}+{$lon}") . '&key=' . urlencode($apiKey) . '&no_annotations=1&limit=1';
-            } elseif ($provider === 'bigdatacloud') {
-                $url = 'https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' . urlencode((string) $lat) . '&longitude=' . urlencode((string) $lon) . '&localityLanguage=en';
-                if ($apiKey !== '') {
-                    $url .= '&key=' . urlencode($apiKey);
-                }
-            } elseif ($provider === 'nominatim') {
-                $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' . urlencode((string) $lat) . '&lon=' . urlencode((string) $lon) . '&zoom=14&addressdetails=1';
-            } else {
+            $url = self::buildReverseGeocoderUrl($provider, $lat, $lon, $apiKey, $endpoint);
+            if ($url === null) {
+                $errorReason = 'reverse_geocoder_misconfigured';
                 return null;
             }
 
-            $raw = @file_get_contents($url, false, $context);
-            if ($raw === false) {
-                self::$geocoderMetrics['errors_count']++;
+            $raw = self::executeHttpGet($url, $timeout, [
+                "User-Agent: {$userAgent}",
+                "Accept: application/json",
+            ]);
+
+            if ($raw === null) {
+                self::mutateSharedQuotaState(function (array $state) {
+                    $state['errors_count']++;
+                    return $state;
+                });
+                $errorReason = 'reverse_geocoder_unavailable';
                 return null;
             }
 
             $json = json_decode($raw, true);
             if (!is_array($json)) {
-                self::$geocoderMetrics['errors_count']++;
+                self::mutateSharedQuotaState(function (array $state) {
+                    $state['errors_count']++;
+                    return $state;
+                });
+                $errorReason = 'reverse_geocoder_unavailable';
                 return null;
             }
 
             $normalized = self::normalizeReverseGeocoderResponse($json, $provider);
-            if ($normalized !== null) {
-                self::$reverseGeoCache[$cacheKey] = $normalized;
+            if ($normalized !== null && !empty($normalized['country'])) {
+                $normalized['provider'] = $provider;
+                if ($ttl > 0) {
+                    self::$reverseGeoCache[$cacheKey] = ['expires_at' => $now + $ttl, 'value' => $normalized];
+                    self::sharedCacheSet('revgeo', $cacheKey, $normalized, $ttl);
+                }
+                return $normalized;
             }
-            return $normalized;
+
+            $errorReason = 'out_of_coverage';
+            return null;
         } catch (\Throwable $e) {
-            self::$geocoderMetrics['errors_count']++;
+            self::mutateSharedQuotaState(function (array $state) {
+                $state['errors_count']++;
+                return $state;
+            });
+            $errorReason = 'reverse_geocoder_unavailable';
             return null;
         }
     }
 
     /**
+     * Build the request URL for each supported worldwide reverse geocoding provider
+     */
+    public static function buildReverseGeocoderUrl(string $provider, float $lat, float $lon, string $apiKey = '', string $customEndpoint = ''): ?string {
+        $provider = strtolower(trim($provider));
+
+        switch ($provider) {
+            case 'opencage':
+                if ($apiKey === '') {
+                    return null;
+                }
+                $base = $customEndpoint !== '' ? rtrim($customEndpoint, '?') : 'https://api.opencagedata.com/geocode/v1/json';
+                return $base . '?q=' . urlencode("{$lat}+{$lon}") . '&key=' . urlencode($apiKey) . '&no_annotations=1&limit=1';
+
+            case 'bigdatacloud':
+                $base = $customEndpoint !== ''
+                    ? rtrim($customEndpoint, '?')
+                    : ($apiKey !== '' ? 'https://api.bigdatacloud.net/data/reverse-geocode' : 'https://api.bigdatacloud.net/data/reverse-geocode-client');
+                $url = $base . '?latitude=' . urlencode((string) $lat) . '&longitude=' . urlencode((string) $lon) . '&localityLanguage=en';
+                if ($apiKey !== '') {
+                    $url .= '&key=' . urlencode($apiKey);
+                }
+                return $url;
+
+            case 'nominatim':
+                $base = $customEndpoint !== '' ? rtrim($customEndpoint, '?') : 'https://nominatim.openstreetmap.org/reverse';
+                return $base . '?format=jsonv2&lat=' . urlencode((string) $lat) . '&lon=' . urlencode((string) $lon) . '&zoom=14&addressdetails=1';
+
+            case 'google':
+                if ($apiKey === '') {
+                    return null;
+                }
+                $base = $customEndpoint !== '' ? rtrim($customEndpoint, '?') : 'https://maps.googleapis.com/maps/api/geocode/json';
+                return $base . '?latlng=' . urlencode("{$lat},{$lon}") . '&key=' . urlencode($apiKey);
+
+            case 'mapbox':
+                if ($apiKey === '') {
+                    return null;
+                }
+                // Mapbox uses {longitude},{latitude} order
+                $base = $customEndpoint !== '' ? rtrim($customEndpoint, '/') : 'https://api.mapbox.com/geocoding/v5/mapbox.places';
+                return $base . '/' . urlencode("{$lon},{$lat}") . '.json?access_token=' . urlencode($apiKey) . '&types=country,region,district,place,locality';
+
+            default:
+                return null;
+        }
+    }
+
+    /**
      * Normalize international administrative hierarchies (State, Province, Region, Department, Commune, City)
-     * across reverse geocoding providers.
+     * across all 5 reverse geocoding providers ('opencage', 'bigdatacloud', 'nominatim', 'google', 'mapbox')
+     * and direct normalized payloads.
      */
     public static function normalizeReverseGeocoderResponse(array $payload, string $provider = 'custom'): ?array {
-        // Direct normalized format (used by mocks or custom adapters)
+        $provider = strtolower(trim($provider));
+
+        // 1. Direct normalized format (used by custom adapters / fixtures)
         if (isset($payload['country']) || isset($payload['country_code'])) {
             $countryCode = !empty($payload['country_code']) ? strtoupper(trim((string) $payload['country_code'])) : null;
             $cont = self::getContinentForCountry($countryCode);
+            $region = $payload['region'] ?? ($payload['state'] ?? ($payload['province'] ?? ($payload['department'] ?? null)));
+            $regionCode = $payload['region_code'] ?? null;
+            $city = $payload['city'] ?? ($payload['commune'] ?? ($payload['municipality'] ?? ($payload['town'] ?? null)));
+
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+
             return [
-                'continent'      => $payload['continent'] ?? $cont['name'],
-                'continent_code' => $payload['continent_code'] ?? $cont['code'],
-                'country'        => $payload['country'] ?? null,
-                'country_code'   => $countryCode,
-                'region'         => $payload['region'] ?? ($payload['state'] ?? ($payload['province'] ?? ($payload['department'] ?? null))),
-                'region_code'    => $payload['region_code'] ?? null,
-                'admin_type'     => $payload['admin_type'] ?? 'region',
-                'city'           => $payload['city'] ?? ($payload['commune'] ?? ($payload['municipality'] ?? ($payload['town'] ?? null))),
+                'continent'             => $payload['continent'] ?? $cont['name'],
+                'continent_code'        => $payload['continent_code'] ?? $cont['code'],
+                'country'               => $payload['country'] ?? null,
+                'country_code'          => $countryCode,
+                'region'                => $region,
+                'region_code'           => $regionCode,
+                'admin_type'            => $payload['admin_type'] ?? 'region',
+                'city'                  => $city,
+                'provider'              => $payload['provider'] ?? $provider,
+                'region_border_dist_km' => isset($payload['region_border_dist_km']) ? (float) $payload['region_border_dist_km'] : INF,
+                'city_border_dist_km'   => isset($payload['city_border_dist_km']) ? (float) $payload['city_border_dist_km'] : INF,
             ];
         }
 
-        // OpenCage format
+        // 2. Google Maps Geocoding API format
+        if (isset($payload['status']) && isset($payload['results']) && is_array($payload['results'])) {
+            if ($payload['status'] !== 'OK' || empty($payload['results'][0]['address_components'])) {
+                return null;
+            }
+            $country = null;
+            $countryCode = null;
+            $region = null;
+            $regionCode = null;
+            $regionLevel2 = null;
+            $city = null;
+
+            foreach ($payload['results'] as $resItem) {
+                if (empty($resItem['address_components']) || !is_array($resItem['address_components'])) {
+                    continue;
+                }
+                foreach ($resItem['address_components'] as $comp) {
+                    $types = $comp['types'] ?? [];
+                    if (in_array('country', $types, true) && $country === null) {
+                        $country = $comp['long_name'] ?? null;
+                        $countryCode = !empty($comp['short_name']) ? strtoupper($comp['short_name']) : null;
+                    }
+                    if (in_array('administrative_area_level_1', $types, true) && $region === null) {
+                        $region = $comp['long_name'] ?? null;
+                        $short = $comp['short_name'] ?? null;
+                        if ($short && preg_match('/^[A-Z0-9]{1,3}$/i', $short)) {
+                            $regionCode = strtoupper($short);
+                        }
+                    }
+                    if (in_array('administrative_area_level_2', $types, true) && $regionLevel2 === null) {
+                        $regionLevel2 = $comp['long_name'] ?? null;
+                    }
+                    if ((in_array('locality', $types, true) || in_array('postal_town', $types, true)) && $city === null) {
+                        $city = $comp['long_name'] ?? null;
+                    }
+                }
+            }
+
+            if ($region === null && $regionLevel2 !== null) {
+                $region = $regionLevel2;
+            }
+            if ($regionCode !== null && $countryCode !== null && strpos($regionCode, '-') === false) {
+                $regionCode = "{$countryCode}-{$regionCode}";
+            }
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+            $cont = self::getContinentForCountry($countryCode);
+
+            return [
+                'continent'      => $cont['name'],
+                'continent_code' => $cont['code'],
+                'country'        => $country,
+                'country_code'   => $countryCode,
+                'region'         => $region,
+                'region_code'    => $regionCode,
+                'admin_type'     => 'administrative_area_level_1',
+                'city'           => $city,
+                'provider'       => 'google',
+            ];
+        }
+
+        // 3. Mapbox Geocoding API v5 format
+        if (isset($payload['type']) && $payload['type'] === 'FeatureCollection' && isset($payload['features']) && is_array($payload['features'])) {
+            if (empty($payload['features'])) {
+                return null;
+            }
+            $country = null;
+            $countryCode = null;
+            $region = null;
+            $regionCode = null;
+            $district = null;
+            $city = null;
+
+            $extractMapboxItem = function (array $item) use (&$country, &$countryCode, &$region, &$regionCode, &$district, &$city) {
+                $id = (string) ($item['id'] ?? '');
+                $placeTypes = $item['place_type'] ?? [];
+                $text = $item['text'] ?? ($item['text_en'] ?? null);
+                $shortCode = $item['properties']['short_code'] ?? ($item['short_code'] ?? null);
+
+                if ((strpos($id, 'country.') === 0 || in_array('country', $placeTypes, true)) && $country === null) {
+                    $country = $text;
+                    if ($shortCode) {
+                        $countryCode = strtoupper($shortCode);
+                    }
+                } elseif ((strpos($id, 'region.') === 0 || in_array('region', $placeTypes, true)) && $region === null) {
+                    $region = $text;
+                    if ($shortCode) {
+                        $regionCode = strtoupper($shortCode);
+                    }
+                } elseif ((strpos($id, 'district.') === 0 || in_array('district', $placeTypes, true)) && $district === null) {
+                    $district = $text;
+                } elseif ((strpos($id, 'place.') === 0 || in_array('place', $placeTypes, true)) && $city === null) {
+                    $city = $text;
+                }
+            };
+
+            foreach ($payload['features'] as $feature) {
+                $extractMapboxItem($feature);
+                if (!empty($feature['context']) && is_array($feature['context'])) {
+                    foreach ($feature['context'] as $ctx) {
+                        if (is_array($ctx)) {
+                            $extractMapboxItem($ctx);
+                        }
+                    }
+                }
+            }
+
+            if ($region === null && $district !== null) {
+                $region = $district;
+            }
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+            $cont = self::getContinentForCountry($countryCode);
+
+            return [
+                'continent'      => $cont['name'],
+                'continent_code' => $cont['code'],
+                'country'        => $country,
+                'country_code'   => $countryCode,
+                'region'         => $region,
+                'region_code'    => $regionCode,
+                'admin_type'     => 'region',
+                'city'           => $city,
+                'provider'       => 'mapbox',
+            ];
+        }
+
+        // 4. OpenCage format
         if (!empty($payload['results'][0]['components'])) {
             $comp = $payload['results'][0]['components'];
             $countryCode = !empty($comp['ISO_3166-1_alpha-2']) ? strtoupper($comp['ISO_3166-1_alpha-2']) : (!empty($comp['country_code']) ? strtoupper($comp['country_code']) : null);
             $cont = self::getContinentForCountry($countryCode);
             $regionCode = null;
             if (!empty($comp['ISO_3166-2'][0])) {
-                $regionCode = $comp['ISO_3166-2'][0];
+                $regionCode = strtoupper($comp['ISO_3166-2'][0]);
             }
+            $region = $comp['state'] ?? ($comp['province'] ?? ($comp['region'] ?? ($comp['county'] ?? ($comp['state_district'] ?? null))));
+            // Do not promote rural hamlets/villages to urban city unless classified as city/town/municipality/commune
+            $city = $comp['city'] ?? ($comp['town'] ?? ($comp['municipality'] ?? ($comp['commune'] ?? null)));
+
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+
             return [
                 'continent'      => $comp['continent'] ?? $cont['name'],
                 'continent_code' => $cont['code'],
                 'country'        => $comp['country'] ?? null,
                 'country_code'   => $countryCode,
-                'region'         => $comp['state'] ?? ($comp['province'] ?? ($comp['region'] ?? ($comp['county'] ?? ($comp['state_district'] ?? null)))),
+                'region'         => $region,
                 'region_code'    => $regionCode,
                 'admin_type'     => isset($comp['state']) ? 'state' : (isset($comp['province']) ? 'province' : 'region'),
-                'city'           => $comp['city'] ?? ($comp['town'] ?? ($comp['municipality'] ?? ($comp['commune'] ?? ($comp['village'] ?? null)))),
+                'city'           => $city,
+                'provider'       => 'opencage',
             ];
         }
 
-        // BigDataCloud format
+        // 5. BigDataCloud format
         if (isset($payload['countryName']) || isset($payload['countryCode'])) {
             $countryCode = !empty($payload['countryCode']) ? strtoupper($payload['countryCode']) : null;
             $cont = self::getContinentForCountry($countryCode);
+            $region = !empty($payload['principalSubdivision']) ? $payload['principalSubdivision'] : null;
+            $regionCode = !empty($payload['principalSubdivisionCode']) ? strtoupper($payload['principalSubdivisionCode']) : null;
+            $city = !empty($payload['city']) ? $payload['city'] : null;
+
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+
             return [
                 'continent'      => $payload['continent'] ?? $cont['name'],
                 'continent_code' => $payload['continentCode'] ?? $cont['code'],
                 'country'        => $payload['countryName'] ?? null,
                 'country_code'   => $countryCode,
-                'region'         => $payload['principalSubdivision'] ?? null,
-                'region_code'    => $payload['principalSubdivisionCode'] ?? null,
+                'region'         => $region,
+                'region_code'    => $regionCode,
                 'admin_type'     => 'subdivision',
-                'city'           => $payload['city'] ?: ($payload['locality'] ?: null),
+                'city'           => $city,
+                'provider'       => 'bigdatacloud',
             ];
         }
 
-        // Nominatim / OSM addressdetails format
+        // 6. Nominatim / OSM addressdetails format
         if (!empty($payload['address']) && is_array($payload['address'])) {
             $addr = $payload['address'];
             $countryCode = !empty($addr['country_code']) ? strtoupper($addr['country_code']) : null;
             $cont = self::getContinentForCountry($countryCode);
+            $region = $addr['state'] ?? ($addr['province'] ?? ($addr['region'] ?? ($addr['county'] ?? null)));
+            $regionCode = $addr['ISO3166-2-lvl4'] ?? ($addr['ISO3166-2-lvl6'] ?? null);
+            $city = $addr['city'] ?? ($addr['town'] ?? ($addr['municipality'] ?? null));
+
+            if ($countryCode === 'MG') {
+                $mg = self::normalizeMadagascarAdmin($region, $regionCode, $city);
+                $region = $mg['region'];
+                $regionCode = $mg['region_code'];
+            }
+
             return [
                 'continent'      => $cont['name'],
                 'continent_code' => $cont['code'],
                 'country'        => $addr['country'] ?? null,
                 'country_code'   => $countryCode,
-                'region'         => $addr['state'] ?? ($addr['province'] ?? ($addr['region'] ?? ($addr['county'] ?? null))),
-                'region_code'    => $addr['ISO3166-2-lvl4'] ?? ($addr['ISO3166-2-lvl6'] ?? null),
+                'region'         => $region,
+                'region_code'    => $regionCode ? strtoupper($regionCode) : null,
                 'admin_type'     => 'region',
-                'city'           => $addr['city'] ?? ($addr['town'] ?? ($addr['municipality'] ?? ($addr['village'] ?? null))),
+                'city'           => $city,
+                'provider'       => 'nominatim',
             ];
         }
 

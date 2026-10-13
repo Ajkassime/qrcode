@@ -179,10 +179,10 @@ return [
 	 * to prevent client IP spoofing.
 	 */
 	'trusted_proxies' => [
-		// Array of trusted proxy CIDRs/IPs (e.g. ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12'])
-		'ips' => [],
+		// Array of trusted proxy CIDRs/IPs (or comma-separated TRUSTED_PROXY_IPS env var)
+		'ips' => getenv('TRUSTED_PROXY_IPS') ? array_values(array_filter(array_map('trim', explode(',', getenv('TRUSTED_PROXY_IPS'))))) : [],
 		// When true, requests originating from official Cloudflare IPv4/IPv6 ranges will trust CF-Connecting-IP
-		'trust_cloudflare' => false,
+		'trust_cloudflare' => filter_var(getenv('TRUST_CLOUDFLARE_PROXY') ?: false, FILTER_VALIDATE_BOOLEAN),
 	],
 
 	/**
@@ -191,29 +191,31 @@ return [
 	 * Supported providers: 'ipinfo', 'ipapi'
 	 */
 	'geosecondary' => [
-		'enabled' => false,
-		'provider' => 'ipinfo',
-		'api_key' => '',
-		'timeout' => 1.5,
-		'cache_ttl' => 86400,
+		'enabled' => filter_var(getenv('GEOSECONDARY_ENABLED') ?: false, FILTER_VALIDATE_BOOLEAN),
+		'provider' => getenv('GEOSECONDARY_PROVIDER') ?: 'ipinfo',
+		'api_key' => getenv('GEOSECONDARY_API_KEY') ?: '',
+		'timeout' => getenv('GEOSECONDARY_TIMEOUT') ? (float) getenv('GEOSECONDARY_TIMEOUT') : 1.5,
+		'cache_ttl' => getenv('GEOSECONDARY_CACHE_TTL') ? (int) getenv('GEOSECONDARY_CACHE_TTL') : 86400,
 	],
 
 	/**
 	 * Reverse Geocoding Service (Worldwide GPS Coordinate Resolution)
-	 * Used as a configurable fallback/enrichment alongside the local administrative polygon boundary engine
-	 * (storage/app/geo_boundaries.json) when visitors explicitly grant browser GPS consent.
-	 * Includes in-memory/file caching, quota/rate-limit protection, strict timeout, and ToS compliance.
-	 * Supported providers: 'local_polygons', 'bigdatacloud', 'opencage', 'mapbox', 'google', 'nominatim'
+	 * Used when visitors explicitly grant browser GPS consent on a campaign link.
+	 * Includes shared cross-process file caching with TTL expiration, per-minute rate limiting,
+	 * daily quota enforcement, strict HTTP timeout, API key masking, and ToS compliance.
+	 * Implemented providers: 'opencage', 'bigdatacloud', 'nominatim', 'google', 'mapbox'
 	 */
 	'reverse_geocoder' => [
-		'enabled' => false,
-		'provider' => 'opencage',
-		'api_key' => '',
-		'timeout' => 1.5,
-		'cache_ttl' => 86400,
-		'max_requests_per_minute' => 60,
-		'daily_quota' => 2500,
-		'user_agent' => 'QRCodePlatform-GeoResolver/1.0',
+		'enabled' => filter_var(getenv('REVERSE_GEOCODER_ENABLED') ?: false, FILTER_VALIDATE_BOOLEAN),
+		'provider' => getenv('REVERSE_GEOCODER_PROVIDER') ?: 'opencage',
+		'api_key' => getenv('REVERSE_GEOCODER_API_KEY') ?: '',
+		'endpoint' => getenv('REVERSE_GEOCODER_ENDPOINT') ?: '',
+		'timeout' => getenv('REVERSE_GEOCODER_TIMEOUT') ? (float) getenv('REVERSE_GEOCODER_TIMEOUT') : 1.5,
+		'cache_ttl' => getenv('REVERSE_GEOCODER_CACHE_TTL') ? (int) getenv('REVERSE_GEOCODER_CACHE_TTL') : 86400,
+		'max_requests_per_minute' => getenv('REVERSE_GEOCODER_MAX_RPM') ? (int) getenv('REVERSE_GEOCODER_MAX_RPM') : 60,
+		'daily_quota' => getenv('REVERSE_GEOCODER_DAILY_QUOTA') ? (int) getenv('REVERSE_GEOCODER_DAILY_QUOTA') : 2500,
+		'user_agent' => getenv('REVERSE_GEOCODER_USER_AGENT') ?: 'QRCodePlatform-GeoResolver/1.0',
+		'tos_accepted' => filter_var(getenv('REVERSE_GEOCODER_TOS_ACCEPTED') !== false ? getenv('REVERSE_GEOCODER_TOS_ACCEPTED') : true, FILTER_VALIDATE_BOOLEAN),
 		'boundaries_path' => STORAGE.'/app/geo_boundaries.json',
 	],
 

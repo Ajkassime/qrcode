@@ -34,14 +34,14 @@ if ($coordsArg !== null) {
     $parts = array_map('trim', explode(',', $coordsArg));
     $lat = isset($parts[0]) && is_numeric($parts[0]) ? (float) $parts[0] : NAN;
     $lon = isset($parts[1]) && is_numeric($parts[1]) ? (float) $parts[1] : NAN;
-    $acc = isset($parts[2]) && is_numeric($parts[2]) ? (float) $parts[2] : 25.0;
+    $acc = (isset($parts[2]) && $parts[2] !== '' && is_numeric($parts[2])) ? (float) $parts[2] : null;
 
     $resolved = \Helpers\GeoLocation::resolveCoordinates($lat, $lon, $acc);
     $formatted = \Helpers\GeoLocation::formatLocationName($resolved['city'], $resolved['region'], $resolved['country']);
 
     $payload = [
         'mode'            => 'coordinates',
-        'input'           => ['latitude' => $lat, 'longitude' => $lon, 'accuracy_meters' => $acc],
+        'input'           => ['latitude' => $lat, 'longitude' => $lon, 'declared_accuracy_meters' => $acc],
         'resolution'      => $resolved,
         'formatted_label' => $formatted,
     ];
@@ -54,12 +54,14 @@ if ($coordsArg !== null) {
     echo "======================================================================\n";
     echo "       MISSION CODEX — COORDINATE GEOCODING DIAGNOSTIC                \n";
     echo "======================================================================\n";
-    echo "Coordinates     : lat={$lat}, lon={$lon} (accuracy={$acc}m)\n";
+    echo "Coordinates     : lat={$lat}, lon={$lon}\n";
+    echo "Declared Acc.   : " . ($resolved['declared_accuracy_meters'] !== null ? "{$resolved['declared_accuracy_meters']} m ({$resolved['accuracy_radius']} km)" : 'None (Unspecified)') . "\n";
+    echo "Data Source     : {$resolved['source']} (provider: {$resolved['provider']})\n";
     echo "Continent       : " . ($resolved['continent'] ? "{$resolved['continent']} [{$resolved['continent_code']}]" : 'None') . "\n";
     echo "Country         : " . ($resolved['country'] ? "{$resolved['country']} [{$resolved['country_code']}]" : 'None') . "\n";
     echo "Region          : " . ($resolved['region'] ? "{$resolved['region']} [" . ($resolved['region_code'] ?: 'N/A') . "]" : 'None') . "\n";
     echo "City            : " . ($resolved['city'] ?: 'None (Undetermined)') . "\n";
-    echo "Precision Level : " . strtoupper($resolved['precision']) . "\n";
+    echo "Location Level  : " . strtoupper($resolved['location_level'] ?? $resolved['precision']) . "\n";
     echo "Verified        : " . ($resolved['verified'] ? 'YES' : 'NO (Browser-declared)') . "\n";
     echo "Missing Reason  : " . ($resolved['missing_reason'] ?: 'None') . "\n";
     echo "Display Label   : {$formatted}\n";

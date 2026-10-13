@@ -1205,7 +1205,9 @@ class Link {
 
 		$lat = isset($body['latitude']) ? filter_var($body['latitude'], FILTER_VALIDATE_FLOAT) : false;
 		$lon = isset($body['longitude']) ? filter_var($body['longitude'], FILTER_VALIDATE_FLOAT) : false;
-		$accuracy = isset($body['accuracy']) && $body['accuracy'] !== null ? filter_var($body['accuracy'], FILTER_VALIDATE_FLOAT) : null;
+		$accuracy = (isset($body['accuracy']) && $body['accuracy'] !== null && $body['accuracy'] !== '')
+			? filter_var($body['accuracy'], FILTER_VALIDATE_FLOAT)
+			: null;
 
 		if ($lat === false || $lon === false || !is_finite((float) $lat) || !is_finite((float) $lon)) {
 			return (new Response(['error' => true, 'message' => 'Invalid coordinates format'], 422))->json();
@@ -1215,34 +1217,45 @@ class Link {
 			return (new Response(['error' => true, 'message' => 'Invalid coordinates range'], 422))->json();
 		}
 
-		if ($accuracy === false || ($accuracy !== null && ($accuracy < 0.0 || $accuracy > 1000000.0))) {
+		if ($accuracy === false || ($accuracy !== null && (!is_finite((float) $accuracy) || $accuracy <= 0.0 || $accuracy > 1000000.0))) {
 			return (new Response(['error' => true, 'message' => 'Invalid accuracy value'], 422))->json();
 		}
 
 		// 7. Resolve administrative location (never store raw GPS coordinates)
 		$resolved = class_exists('\Helpers\GeoLocation')
 			? \Helpers\GeoLocation::resolveCoordinates((float) $lat, (float) $lon, $accuracy !== null ? (float) $accuracy : null)
-			: ['country' => null, 'region' => null, 'city' => null, 'accuracy_radius' => null, 'source' => 'browser_consent'];
+			: ['country' => null, 'region' => null, 'city' => null, 'accuracy_radius' => null, 'declared_accuracy_meters' => null, 'location_level' => 'unknown', 'precision' => 'unknown', 'source' => 'browser_consent'];
 
-		if (!empty($resolved['city'])) {
-			$stat->city = $resolved['city'];
-		} else {
-			$stat->city = null;
+		// If the external reverse geocoder is unavailable/disabled or coordinate resolution returned unknown,
+		// preserve the existing MaxMind IP geolocation on $stat rather than overwriting with null, and redirect cleanly.
+		if (empty($resolved['country']) || ($resolved['location_level'] ?? 'unknown') === 'unknown') {
+			return (new Response([
+				'success'        => true,
+				'geo_updated'    => false,
+				'location_level' => 'unknown',
+				'missing_reason' => $resolved['missing_reason'] ?? 'reverse_geocoder_unavailable',
+				'redirect'       => $url->url,
+			]))->json();
 		}
-		if (!empty($resolved['country'])) {
-			$stat->country = $resolved['country'];
-		}
+
+		$stat->country = $resolved['country'];
+		$stat->city = !empty($resolved['city']) ? $resolved['city'] : null;
 
 		if (class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region')) {
 			$stat->region = !empty($resolved['region']) ? $resolved['region'] : null;
 			$stat->geo_source = 'browser_consent';
-			if (isset($resolved['accuracy_radius']) && $resolved['accuracy_radius'] !== null) {
-				$stat->accuracy_radius = (int) ceil((float) $resolved['accuracy_radius']);
-			}
+			$stat->accuracy_radius = (isset($resolved['accuracy_radius']) && $resolved['accuracy_radius'] !== null)
+				? (int) ceil((float) $resolved['accuracy_radius'])
+				: null;
 		}
 
 		$stat->save();
 
-		return (new Response(['success' => true, 'redirect' => $url->url]))->json();
+		return (new Response([
+			'success'        => true,
+			'geo_updated'    => true,
+			'location_level' => $resolved['location_level'] ?? $resolved['precision'] ?? 'country',
+			'redirect'       => $url->url,
+		]))->json();
 	}
 }
