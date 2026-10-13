@@ -4,8 +4,8 @@
 - **Pull Request :** [#1](https://github.com/Ajkassime/qrcode/pull/1)
 - **Branche source :** `main`
 - **Branche de travail :** `codex/audit-cleanup-qrcode`
-- **Dernier commit :** `41e7186` (`feat(geo): production worldwide reverse geocoding, shared quotas, boundary hardening, and consent privacy disclosure`)
-- **Statut CI GitHub Actions :** **193 / 193 assertions réussies** sur **PHP 8.1, 8.2 et 8.3** (Runs `38361039590` et `38361045739`)
+- **Dernier commit :** `400f873` (`docs(geo): add updated mission audit report to repository root`)
+- **Statut CI GitHub Actions :** **193 / 193 assertions réussies** sur **PHP 8.1, 8.2 et 8.3** (Runs `38364994570` et `38364999784`)
 
 ---
 
