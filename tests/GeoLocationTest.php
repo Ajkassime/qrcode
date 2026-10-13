@@ -368,7 +368,7 @@ class GeoLocationTest {
         ob_start();
         $controller->geoConsent($req1, 'no-consent');
         $out1 = json_decode(ob_get_clean(), true);
-        self::assert(http_response_code() === 403 && !empty($out1['error']), "geoConsent rejects link where geoconsent option is not enabled (403)", $results);
+        self::assert(\Core\Response::lastStatusCode() === 403 && !empty($out1['error']), "geoConsent rejects link where geoconsent option is not enabled (403)", $results);
 
         // Case 2: Request without valid session consent_token must be rejected (403)
         $_SESSION = [];
@@ -377,7 +377,7 @@ class GeoLocationTest {
         ob_start();
         $controller->geoConsent($req2, 'wa-promo');
         $out2 = json_decode(ob_get_clean(), true);
-        self::assert(http_response_code() === 403 && !empty($out2['error']), "geoConsent rejects request with missing/forged session consent_token (403)", $results);
+        self::assert(\Core\Response::lastStatusCode() === 403 && !empty($out2['error']), "geoConsent rejects request with missing/forged session consent_token (403)", $results);
 
         // Case 3: Cross-link stat modification attack (session points to stat 20 which belongs to url 2, while calling wa-promo url 1)
         $_SESSION = [
@@ -390,7 +390,7 @@ class GeoLocationTest {
         $controller->geoConsent($req3, 'wa-promo');
         $out3 = json_decode(ob_get_clean(), true);
         $stat20 = \Core\DB::stats()->where('id', 20)->first();
-        self::assert(http_response_code() === 403 && $stat20->city === null, "geoConsent blocks cross-link stat modification when stat.urlid != url.id (403)", $results);
+        self::assert(\Core\Response::lastStatusCode() === 403 && $stat20->city === null, "geoConsent blocks cross-link stat modification when stat.urlid != url.id (403)", $results);
 
         // Case 4: Cross-visitor IP mismatch attack (stat 10 belongs to 196.192.32.1, attacker sends from 102.16.0.55)
         $_SERVER['REMOTE_ADDR'] = '102.16.0.55';
@@ -403,7 +403,7 @@ class GeoLocationTest {
         ob_start();
         $controller->geoConsent($req4, 'wa-promo');
         $out4 = json_decode(ob_get_clean(), true);
-        self::assert(http_response_code() === 403 && !empty($out4['error']), "geoConsent blocks cross-visitor modification when requester IP does not match stat IP (403)", $results);
+        self::assert(\Core\Response::lastStatusCode() === 403 && !empty($out4['error']), "geoConsent blocks cross-visitor modification when requester IP does not match stat IP (403)", $results);
 
         // Case 5: Valid consent flow via Gate::consentLocation() -> updates stat 10 with Mananjary / Vatovavy and blocks replay
         $_SERVER['REMOTE_ADDR'] = '196.192.32.1';
@@ -427,7 +427,7 @@ class GeoLocationTest {
         $out5 = json_decode(ob_get_clean(), true);
 
         $updatedStat10 = \Core\DB::stats()->where('id', 10)->first();
-        self::assert(http_response_code() === 200 && !empty($out5['success']) && $out5['redirect'] === 'https://wa.me/261340000000?text=Bonjour', "Valid geoConsent returns 200 and preserves WhatsApp target redirect URL", $results);
+        self::assert(\Core\Response::lastStatusCode() === 200 && !empty($out5['success']) && $out5['redirect'] === 'https://wa.me/261340000000?text=Bonjour', "Valid geoConsent returns 200 and preserves WhatsApp target redirect URL", $results);
         self::assert($updatedStat10->country === 'Madagascar' && $updatedStat10->region === 'Vatovavy' && $updatedStat10->city === 'Mananjary' && $updatedStat10->geo_source === 'browser_consent', "Valid geoConsent updates stat 10 with Mananjary, Vatovavy, Madagascar and geo_source='browser_consent'", $results);
 
         // Verify no raw GPS coordinates are stored in any column of stats
@@ -440,7 +440,7 @@ class GeoLocationTest {
         ob_start();
         $controller->geoConsent($req6, 'wa-promo');
         $out6 = json_decode(ob_get_clean(), true);
-        self::assert(http_response_code() === 409 && !empty($out6['error']), "Replaying geoConsent for the same scan is rejected with 409 Conflict", $results);
+        self::assert(\Core\Response::lastStatusCode() === 409 && !empty($out6['error']), "Replaying geoConsent for the same scan is rejected with 409 Conflict", $results);
 
         \Core\Request::setRawBody(null);
     }
