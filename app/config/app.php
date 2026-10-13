@@ -174,25 +174,47 @@ return [
 
 	/**
 	 * Trusted Reverse Proxies
-	 * Configure IP addresses or CIDR blocks of reverse proxies (e.g. load balancers, CDN).
-	 * If empty, reverse proxy headers (X-Forwarded-For, CF-Connecting-IP, etc.) are strictly ignored.
+	 * Configure IP addresses or CIDR blocks of reverse proxies (e.g. Nginx, HAProxy, AWS ALB, CDN).
+	 * If empty, reverse proxy headers (X-Forwarded-For, X-Real-IP, CF-Connecting-IP, etc.) are strictly ignored
+	 * to prevent client IP spoofing.
 	 */
 	'trusted_proxies' => [
-		// Array of trusted proxy CIDRs/IPs (e.g. ['127.0.0.1', '10.0.0.0/8'])
+		// Array of trusted proxy CIDRs/IPs (e.g. ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12'])
 		'ips' => [],
-		// When true, requests from official Cloudflare IP ranges will trust CF-Connecting-IP
+		// When true, requests originating from official Cloudflare IPv4/IPv6 ranges will trust CF-Connecting-IP
 		'trust_cloudflare' => false,
 	],
 
 	/**
 	 * Secondary GeoIP Provider (Optional Fallback)
-	 * Disabled by default. Only used when city is unknown and explicit API credentials are provided.
+	 * Disabled by default. Only used when MaxMind city is undetermined and explicit credentials are provided.
+	 * Supported providers: 'ipinfo', 'ipapi'
 	 */
 	'geosecondary' => [
 		'enabled' => false,
 		'provider' => 'ipinfo',
 		'api_key' => '',
 		'timeout' => 1.5,
+		'cache_ttl' => 86400,
+	],
+
+	/**
+	 * Reverse Geocoding Service (Worldwide GPS Coordinate Resolution)
+	 * Used as a configurable fallback/enrichment alongside the local administrative polygon boundary engine
+	 * (storage/app/geo_boundaries.json) when visitors explicitly grant browser GPS consent.
+	 * Includes in-memory/file caching, quota/rate-limit protection, strict timeout, and ToS compliance.
+	 * Supported providers: 'local_polygons', 'bigdatacloud', 'opencage', 'mapbox', 'google', 'nominatim'
+	 */
+	'reverse_geocoder' => [
+		'enabled' => false,
+		'provider' => 'opencage',
+		'api_key' => '',
+		'timeout' => 1.5,
+		'cache_ttl' => 86400,
+		'max_requests_per_minute' => 60,
+		'daily_quota' => 2500,
+		'user_agent' => 'QRCodePlatform-GeoResolver/1.0',
+		'boundaries_path' => STORAGE.'/app/geo_boundaries.json',
 	],
 
 	/**

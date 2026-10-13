@@ -113,9 +113,18 @@ class Gate {
         View::set('title', e('Partager votre localisation'));
         View::set('description', e('Cette campagne sollicite votre accord pour affiner les statistiques régionales de consultation.'));
 
+        $request = request();
+        $statId = $request->session("last_stat_{$url->id}");
+        $secret = defined('AuthToken') ? AuthToken : 'codex-geo-consent-secret';
+        $randomBytes = function_exists('random_bytes') ? bin2hex(random_bytes(16)) : uniqid('', true);
+        $consentNonce = hash_hmac('sha256', "{$url->id}:{$statId}:{$request->ip()}:{$randomBytes}", $secret);
+
+        $request->session("geoconsent_nonce_{$url->id}", $consentNonce);
+        $request->unset("geoconsent_used_{$url->id}");
+
         $targetUrl = $url->url;
 
-        return View::with('gates.consent', compact('url', 'targetUrl'))->extend('layouts.auth');
+        return View::with('gates.consent', compact('url', 'targetUrl', 'consentNonce'))->extend('layouts.auth');
     }
     /**
      * Direct method

@@ -416,12 +416,32 @@ final class Request {
 		return $this->typeof() == "post" ? true : false;
 	}
 	/**
+	 * Custom raw body override for testing
+	 * @var string|null
+	 */
+	protected static ?string $_customRawBody = null;
+
+	public static function setRawBody(?string $raw): void {
+		self::$_customRawBody = $raw;
+	}
+
+	/**
 	 * Get Request Body
 	 * @author GemPixel <https://gempixel.com>
 	 * @version 1.0
 	 */
 	public function getBody(){
+		if (self::$_customRawBody !== null) {
+			return self::$_customRawBody;
+		}
 		return file_get_contents("php://input");
+	}
+
+	/**
+	 * Alias for getBody()
+	 */
+	public function body(){
+		return $this->getBody();
 	}
 	/**
 	 * Get HTTP Code

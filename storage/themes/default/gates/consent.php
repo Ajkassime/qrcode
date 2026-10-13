@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var targetUrl = <?php echo json_encode($targetUrl); ?>;
     var consentEndpoint = <?php echo json_encode(route('link.geoconsent', [$url->alias ?: $url->custom])); ?>;
     var csrfToken = <?php echo json_encode(csrf_token() ?? ''); ?>;
+    var consentNonce = <?php echo json_encode($consentNonce ?? ''); ?>;
 
     var shareBtn = document.getElementById("btn-share-location");
     var skipBtn = document.getElementById("btn-skip-location");
@@ -71,6 +72,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
                         accuracy: position.coords.accuracy,
+                        consent_token: consentNonce,
                         _token: csrfToken
                     };
 

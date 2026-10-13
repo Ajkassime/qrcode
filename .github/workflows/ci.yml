@@ -21,7 +21,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
-          extensions: mbstring, json, gd, curl, openssl, ctype, iconv, zlib, fileinfo, zip
+          extensions: mbstring, json, gd, curl, openssl, ctype, iconv, zlib, fileinfo, zip, pdo, pdo_sqlite, sqlite3
           coverage: none
 
       - name: Validate composer.json
@@ -35,11 +35,13 @@ jobs:
 
       - name: Check PHP Syntax
         run: |
-          find app core -type f -name "*.php" -exec php -l {} \; > /dev/null
-          echo "PHP Lint passed on all source files."
+          find app core scripts tests -type f -name "*.php" -exec php -l {} \; > /dev/null
+          echo "PHP Lint passed on all source, script, and test files."
 
       - name: Run Test Suite
+        shell: bash
         run: |
+          set -eo pipefail
           php tests/run_tests.php | tee test_run.log
           if ! grep -q "TEST RESULTS SUMMARY:" test_run.log; then
             echo "ERROR: Test results summary was not found in test output!"

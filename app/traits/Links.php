@@ -907,16 +907,7 @@ trait Links {
         $stats->city = $location['city'] ?? null;
 
         // Check if extended geo columns (region, geo_source, accuracy_radius) exist in table
-        static $hasExtendedGeoCols = null;
-        if ($hasExtendedGeoCols === null) {
-            try {
-                $table = (defined('DBprefix') ? DBprefix : '') . 'stats';
-                $cols = DB::forTable('stats')->rawQuery("SHOW COLUMNS FROM `{$table}` LIKE 'region'")->findArray();
-                $hasExtendedGeoCols = !empty($cols);
-            } catch (\Throwable $e) {
-                $hasExtendedGeoCols = false;
-            }
-        }
+        $hasExtendedGeoCols = class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region');
 
         if ($hasExtendedGeoCols) {
             $stats->region = $location['region'] ?? null;

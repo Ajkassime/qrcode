@@ -5,25 +5,26 @@
  * Reprocesses historical stats records that have missing/unknown cities ONLY when
  * the raw client IP is legitimately and legally stored (i.e. unhashed).
  *
- * Strict Security Rules:
+ * Strict Safety & Privacy Rules:
+ *   - Uses standalone `scripts/cli-bootstrap.php` (never uses test bootstrap or test state).
+ *   - Refuses execution with non-zero exit code (exit 1) if the target database is unavailable.
  *   - NEVER reconstructs or guesses cities from hashed IPs (MD5/SHA).
- *   - Runs in DRY-RUN mode by default unless --apply is explicitly specified.
+ *   - Supports `--status` (read-only), `--dry-run` (read-only default), and `--apply --confirm`.
  *
  * Usage:
- *   php scripts/geo-repair.php               # Dry-run simulation (default)
- *   php scripts/geo-repair.php --apply       # Apply updates to database
- *   php scripts/geo-repair.php --limit=500   # Process up to N records
+ *   php scripts/geo-repair.php --status                # Read-only summary of repairable records
+ *   php scripts/geo-repair.php --dry-run               # Read-only simulation on database records (default)
+ *   php scripts/geo-repair.php --apply --confirm       # Apply verified repairs to database
+ *   php scripts/geo-repair.php --limit=500             # Process up to N records
  */
 
-require_once dirname(__DIR__) . "/tests/bootstrap.php";
-require_once APP . "/helpers/GeoLocation.php";
-
-if (file_exists(ROOT . "/config.php")) {
-    @include_once ROOT . "/config.php";
-}
+require_once __DIR__ . '/cli-bootstrap.php';
 
 $args = array_slice($argv, 1);
-$isApply = in_array('--apply', $args);
+$isStatus = in_array('--status', $args, true);
+$isDryRun = in_array('--dry-run', $args, true);
+$isApply = in_array('--apply', $args, true);
+$isConfirmed = in_array('--confirm', $args, true);
 $limit = 1000;
 
 foreach ($args as $arg) {
@@ -32,99 +33,61 @@ foreach ($args as $arg) {
     }
 }
 
-echo "======================================================================\n";
-echo "       MISSION CODEX — HISTORICAL GEO REPAIR TOOL                     \n";
-echo "======================================================================\n";
-echo "Mode: " . ($isApply ? "LIVE (Applying changes to database)" : "DRY-RUN (Simulation only, no DB writes)") . "\n";
-echo "Limit: {$limit} records\n\n";
-
-$runOfflineSimulation = false;
-if (!defined('DBhost') || empty(constant('DBhost'))) {
-    $runOfflineSimulation = true;
-    echo "Notice: DBhost not configured. Running in offline simulation mode.\n";
-} else {
-    try {
-        \Core\DB::Connect();
-        // Ping connection
-        \Core\DB::forTable('stats')->rawQuery("SELECT 1")->findArray();
-    } catch (\Throwable $e) {
-        $runOfflineSimulation = true;
-        echo "Notice: Database connection unavailable (" . $e->getMessage() . "). Running in offline simulation mode.\n";
-    }
+if (!$isStatus && !$isDryRun && !$isApply) {
+    $isDryRun = true;
 }
 
-if ($runOfflineSimulation) {
-    echo "Example test run on historical sample values:\n\n";
-
-    $sampleRecords = [
-        ['id' => 101, 'ip' => '102.68.192.228', 'country' => 'Madagascar', 'city' => '', 'region' => ''],
-        ['id' => 102, 'ip' => '196.192.32.1',   'country' => 'Madagascar', 'city' => 'Unknown', 'region' => ''],
-        ['id' => 103, 'ip' => 'd41d8cd98f00b204e9800998ecf8427e', 'country' => 'Madagascar', 'city' => '', 'region' => ''], // Hashed
-        ['id' => 104, 'ip' => '192.168.1.50',    'country' => 'Madagascar', 'city' => '', 'region' => ''], // Private
-    ];
-
-    $stats = [
-        'inspected'       => count($sampleRecords),
-        'hashed_skipped'  => 0,
-        'private_skipped' => 0,
-        'city_resolved'   => 0,
-        'region_resolved' => 0,
-        'undetermined'    => 0,
-    ];
-
-    foreach ($sampleRecords as $rec) {
-        $ip = trim((string) $rec['ip']);
-        echo "[ID {$rec['id']}] IP: " . (strlen($ip) === 32 ? substr($ip, 0, 8) . "..." : $ip) . " | ";
-
-        if (preg_match('/^[a-f0-9]{32}$/i', $ip)) {
-            $stats['hashed_skipped']++;
-            echo "SKIPPED: Hashed IP (irreversible per privacy rules)\n";
-            continue;
-        }
-
-        if (!\Helpers\GeoLocation::isPublicIp($ip)) {
-            $stats['private_skipped']++;
-            echo "SKIPPED: Private/Reserved IP\n";
-            continue;
-        }
-
-        $geo = \Helpers\GeoLocation::locate($ip);
-        if (!empty($geo['city'])) {
-            $stats['city_resolved']++;
-            echo "REPAIRED: City identified -> '{$geo['city']}', Region: '" . ($geo['region'] ?: 'N/A') . "', Country: '{$geo['country']}'\n";
-        } elseif (!empty($geo['region'])) {
-            $stats['region_resolved']++;
-            echo "REPAIRED: Region identified -> '{$geo['region']}', City: Undetermined, Country: '{$geo['country']}'\n";
-        } else {
-            $stats['undetermined']++;
-            echo "UNCHANGED: City & Region remain undetermined in MaxMind\n";
-        }
-    }
-
-    echo "\n----------------------------------------------------------------------\n";
-    echo "SUMMARY:\n";
-    echo "  Total records inspected     : {$stats['inspected']}\n";
-    echo "  Hashed IPs skipped          : {$stats['hashed_skipped']} (100% privacy preserved)\n";
-    echo "  Private/local IPs skipped   : {$stats['private_skipped']}\n";
-    echo "  Cities successfully resolved: {$stats['city_resolved']}\n";
-    echo "  Regions resolved            : {$stats['region_resolved']}\n";
-    echo "  Remaining undetermined      : {$stats['undetermined']}\n";
-    echo "----------------------------------------------------------------------\n";
-    exit(0);
+if ($isApply && !$isConfirmed) {
+    fwrite(STDERR, "[ERROR] Applying repairs to the database requires explicit `--confirm` flag.\n");
+    fwrite(STDERR, "Usage: php scripts/geo-repair.php --apply --confirm\n");
+    exit(1);
 }
 
 try {
-    \Core\DB::Connect();
+    $pdo = cliConnectDatabase();
+} catch (\Throwable $e) {
+    fwrite(STDERR, "[ERROR] Database connection unavailable: " . $e->getMessage() . "\n");
+    fwrite(STDERR, "Repair aborted: refusing to simulate fake database repairs without an active database connection.\n");
+    exit(1);
+}
 
-    $table = (defined('DBprefix') ? DBprefix : '') . 'stats';
-    $cols = \Core\DB::forTable('stats')->rawQuery("SHOW COLUMNS FROM `{$table}`")->findArray();
-    $existing = array_column($cols, 'Field');
-    $hasRegion = in_array('region', $existing);
+try {
+    $prefix = defined('DBprefix') ? DBprefix : '';
+    $table = $prefix . 'stats';
 
-    $records = \Core\DB::stats()
-        ->whereRaw("(city IS NULL OR city = '' OR LOWER(city) = 'unknown' OR LOWER(city) = 'inconnu')")
-        ->limit($limit)
-        ->findMany();
+    $existing = cliGetTableColumns($pdo, $table);
+    if (empty($existing)) {
+        fwrite(STDERR, "[ERROR] Target table `{$table}` does not exist or has no readable columns.\n");
+        exit(1);
+    }
+
+    $hasRegion = in_array('region', $existing, true);
+    $hasGeoSource = in_array('geo_source', $existing, true);
+    $hasAccuracy = in_array('accuracy_radius', $existing, true);
+
+    $stmtCount = $pdo->query("SELECT COUNT(*) FROM `{$table}` WHERE (city IS NULL OR city = '' OR LOWER(city) IN ('unknown', 'inconnu', 'n/a', 'none'))");
+    $totalCandidates = $stmtCount ? (int) $stmtCount->fetchColumn() : 0;
+
+    if ($isStatus) {
+        echo "======================================================================\n";
+        echo "       HISTORICAL GEO REPAIR STATUS (READ-ONLY)                       \n";
+        echo "======================================================================\n";
+        echo "Target Table                  : `{$table}`\n";
+        echo "Extended Columns Present      : region=" . ($hasRegion ? 'YES' : 'NO') . ", geo_source=" . ($hasGeoSource ? 'YES' : 'NO') . "\n";
+        echo "Records Missing City          : {$totalCandidates}\n";
+        exit(0);
+    }
+
+    echo "======================================================================\n";
+    echo "       MISSION CODEX — HISTORICAL GEO REPAIR TOOL                     \n";
+    echo "======================================================================\n";
+    echo "Mode  : " . ($isApply ? "LIVE APPLY (Writing to `{$table}`)" : "DRY-RUN (Read-only, no DB writes)") . "\n";
+    echo "Limit : {$limit} records (Total candidates in DB: {$totalCandidates})\n\n";
+
+    $stmt = $pdo->prepare("SELECT * FROM `{$table}` WHERE (city IS NULL OR city = '' OR LOWER(city) IN ('unknown', 'inconnu', 'n/a', 'none')) LIMIT :lim");
+    $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
+    $stmt->execute();
+    $records = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
     $stats = [
         'inspected'       => count($records),
@@ -133,18 +96,20 @@ try {
         'city_resolved'   => 0,
         'region_resolved' => 0,
         'undetermined'    => 0,
+        'updated_rows'    => 0,
     ];
 
     foreach ($records as $row) {
-        $ip = trim((string) $row->ip);
+        $id = $row['id'] ?? null;
+        $ip = trim((string) ($row['ip'] ?? ''));
 
-        // Check if IP is hashed (MD5)
-        if (preg_match('/^[a-f0-9]{32}$/i', $ip)) {
+        // Never attempt to reverse or guess hashed IPs (MD5 32 hex or SHA-256 64 hex)
+        if (preg_match('/^[a-f0-9]{32}$/i', $ip) || preg_match('/^[a-f0-9]{64}$/i', $ip)) {
             $stats['hashed_skipped']++;
             continue;
         }
 
-        // Check if IP is valid and public
+        // Skip private or reserved IPs
         if (!\Helpers\GeoLocation::isPublicIp($ip)) {
             $stats['private_skipped']++;
             continue;
@@ -154,22 +119,53 @@ try {
 
         if (!empty($geo['city'])) {
             $stats['city_resolved']++;
-            if ($isApply) {
-                $row->city = $geo['city'];
-                $row->country = $geo['country'] ?: $row->country;
-                if ($hasRegion) {
-                    $row->region = $geo['region'] ?? null;
-                    $row->geo_source = 'maxmind_repair';
+            if ($isApply && $id !== null) {
+                $fields = ['city = :city'];
+                $params = [':city' => $geo['city'], ':id' => $id];
+
+                if (!empty($geo['country'])) {
+                    $fields[] = 'country = :country';
+                    $params[':country'] = strtolower($geo['country']);
                 }
-                $row->save();
+                if ($hasRegion && !empty($geo['region'])) {
+                    $fields[] = 'region = :region';
+                    $params[':region'] = $geo['region'];
+                }
+                if ($hasGeoSource) {
+                    $fields[] = 'geo_source = :geo_source';
+                    $params[':geo_source'] = 'maxmind_repair';
+                }
+                if ($hasAccuracy && isset($geo['accuracy_radius'])) {
+                    $fields[] = 'accuracy_radius = :accuracy_radius';
+                    $params[':accuracy_radius'] = (int) $geo['accuracy_radius'];
+                }
+
+                $upd = $pdo->prepare("UPDATE `{$table}` SET " . implode(', ', $fields) . " WHERE id = :id");
+                $upd->execute($params);
+                $stats['updated_rows']++;
             }
         } elseif (!empty($geo['region'])) {
             $stats['region_resolved']++;
-            if ($isApply && $hasRegion) {
-                $row->region = $geo['region'];
-                $row->country = $geo['country'] ?: $row->country;
-                $row->geo_source = 'maxmind_repair';
-                $row->save();
+            if ($isApply && $hasRegion && $id !== null) {
+                $fields = ['region = :region'];
+                $params = [':region' => $geo['region'], ':id' => $id];
+
+                if (!empty($geo['country'])) {
+                    $fields[] = 'country = :country';
+                    $params[':country'] = strtolower($geo['country']);
+                }
+                if ($hasGeoSource) {
+                    $fields[] = 'geo_source = :geo_source';
+                    $params[':geo_source'] = 'maxmind_repair';
+                }
+                if ($hasAccuracy && isset($geo['accuracy_radius'])) {
+                    $fields[] = 'accuracy_radius = :accuracy_radius';
+                    $params[':accuracy_radius'] = (int) $geo['accuracy_radius'];
+                }
+
+                $upd = $pdo->prepare("UPDATE `{$table}` SET " . implode(', ', $fields) . " WHERE id = :id");
+                $upd->execute($params);
+                $stats['updated_rows']++;
             }
         } else {
             $stats['undetermined']++;
@@ -183,12 +179,13 @@ try {
     echo "  Cities successfully resolved: {$stats['city_resolved']}\n";
     echo "  Regions resolved            : {$stats['region_resolved']}\n";
     echo "  Remaining undetermined      : {$stats['undetermined']}\n";
+    echo "  Database rows updated       : {$stats['updated_rows']}\n";
 
     if (!$isApply) {
-        echo "\n* To apply these repairs to your database, re-run with: php scripts/geo-repair.php --apply\n";
+        echo "\n* To apply these repairs to your database, re-run with: php scripts/geo-repair.php --apply --confirm\n";
     }
-
+    exit(0);
 } catch (\Throwable $e) {
-    echo "Error: " . $e->getMessage() . "\n";
+    fwrite(STDERR, "[ERROR] Repair execution failed: " . $e->getMessage() . "\n");
     exit(1);
 }
