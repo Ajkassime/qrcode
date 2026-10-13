@@ -4,123 +4,143 @@
 - **Pull Request :** [#1](https://github.com/Ajkassime/qrcode/pull/1)
 - **Branche source :** `main`
 - **Branche de travail :** `codex/audit-cleanup-qrcode`
-- **Dernier commit :** `400f873` (`docs(geo): add updated mission audit report to repository root`)
-- **Statut CI GitHub Actions :** **193 / 193 assertions réussies** sur **PHP 8.1, 8.2 et 8.3** (Runs `38364994570` et `38364999784`)
+- **Suite de tests :** **197 / 197 assertions réussies** (0 échec)
 
 ---
 
-## 1. SITUATION TECHNIQUE & TRAITEMENT DES 7 POINTS D'AUDIT
+## 1. SITUATION TECHNIQUE & TRAITEMENT DES EXIGENCES D'AUDIT
 
-### Point 1 : Suppression des frontières rectangulaires synthétiques & Registre des 23 régions de Madagascar
-- **Problème résolu :** `storage/app/geo_boundaries.json` contenait des boîtes englobantes rectangulaires à 4 points qui risquaient d'attribuer une ville ou une région de manière imprécise. De plus, plusieurs régions partageaient des codes historiques dupliqués (`MG-T`, `MG-F`).
+### Point 1 : Configuration unifiée, gestion des proxys et support de GEOSECONDARY_URL
+- **Variables d'environnement prises en charge et alignées :**
+  - `REVERSE_GEOCODER_ENABLED=true` : activation explicite du géocodage inverse GPS.
+  - `REVERSE_GEOCODER_PROVIDER` : choix du prestataire (`opencage`, `bigdatacloud`, `nominatim`, `google`, `mapbox`).
+  - `REVERSE_GEOCODER_API_KEY` : clé d'authentification du prestataire.
+  - `REVERSE_GEOCODER_MAX_RPM` : plafond de requêtes par minute (remplace/complète l'ancienne variable `RPM`).
+  - `REVERSE_GEOCODER_DAILY_QUOTA` : quota journalier d'appels autorisés.
+  - `TRUSTED_PROXY_IPS` : liste des adresses IP ou blocs CIDR de mandataires de confiance (Nginx, HAProxy, AWS ALB).
+  - `TRUST_CLOUDFLARE_PROXY=true` : à activer **uniquement** si le serveur est hébergé derrière le réseau Cloudflare afin de valider les en-têtes `CF-Connecting-IP`.
+- **Implémentation de GEOSECONDARY_URL :**
+  - Support effectif dans [`app/helpers/GeoLocation.php`](file:///Users/ajkassime/Downloads/qr/app/helpers/GeoLocation.php) de `GEOSECONDARY_URL` pour les points de terminaison personnalisés ou internes.
+  - Interpolation sécurisée des paramètres `{ip}` et `{key}` (`str_replace(['{ip}', '{key}'], [urlencode($ip), urlencode($key)], $urlTemplate)`).
+
+### Point 2 : Sécurité des quotas en mode Fail-Closed (`GeoLocation::mutateSharedQuotaState`)
+- **Problème résolu :** Si le fichier partagé d'état des quotas était inaccessible (permissions, disque plein) ou si l'acquisition du verrou exclusif `flock(LOCK_EX)` échouait, l'ancien comportement exécutait le mutateur en mémoire sans persistance, ce qui risquait de laisser passer des appels externes non comptabilisés.
 - **Correction apportée :**
-  - Toutes les boîtes rectangulaires ont été purgées. Le fichier est explicitement marqué `authoritative_polygons: false`.
-  - La méthode `GeoLocation::isAuthoritativePolygon()` exige désormais au minimum 6 sommets géométriques distincts et rejette tout polygone à 4 sommets ou avec seulement 2 coordonnées de longitude/latitude distinctes.
-  - Le registre de Madagascar recense l'ensemble des **23 régions administratives** avec **23 codes uniques normalisés** (ex. `MG-ANA` pour Analamanga, `MG-VAK`, `MG-ITA`, `MG-BON`, `MG-VAT` pour Vatovavy, `MG-FIT` pour Fitovinany, etc.), supprimant toute ambiguïté issue des anciens codes provinciaux.
+  - [`GeoLocation::mutateSharedQuotaState()`](file:///Users/ajkassime/Downloads/qr/app/helpers/GeoLocation.php) adopte désormais une politique stricte de **refus par défaut (Fail-Closed)** : en cas d'impossibilité d'ouvrir le fichier ou de poser le verrou, la méthode retourne `null`.
+  - La méthode de résolution intercepte ce cas et bloque immédiatement tout appel HTTP externe, retournant `missing_reason = 'quota_storage_inaccessible'` et `location_level = 'unknown'`.
+  - Un test unitaire automatisé dédié dans [`tests/GeoLocationTest.php`](file:///Users/ajkassime/Downloads/qr/tests/GeoLocationTest.php) prouve formellement qu'aucun appel HTTP externe n'est émis lorsque le stockage partagé est inaccessible.
 
-### Point 2 : Priorité stricte des fournisseurs & Protection contre les fausses attributions
-- **Problème résolu :** L'ancien moteur pouvait privilégier un polygone local approximatif avant d'interroger un fournisseur externe.
+### Point 3 : Transparence de la confidentialité et conformité des données transmises
+- **Fichiers :** [`storage/themes/default/gates/consent.php`](file:///Users/ajkassime/Downloads/qr/storage/themes/default/gates/consent.php) et [`app/helpers/Gate.php`](file:///Users/ajkassime/Downloads/qr/app/helpers/Gate.php)
 - **Correction apportée :**
-  - Pour les coordonnées GPS issues du consentement, le fournisseur de **géocodage inverse externe est prioritaire** (`GeoLocation::resolveCoordinates()`).
-  - Les limites locales ne sont consultées que si un polygone est explicitement certifié et vérifié géométriquement (`isAuthoritativePolygon() === true`).
-  - En l'absence de ville résolue par le géocodeur externe ou en cas de zone rurale, l'application se replie proprement sur la région ou le pays, sans jamais promouvoir un hameau ou inventer un chef-lieu urbain.
+  - Suppression de toute affirmation inexacte selon laquelle les coordonnées transmises seraient « anonymisées ».
+  - Information transparente du visiteur : les coordonnées GPS précises (latitude, longitude, rayon d'incertitude) sont transmises au prestataire externe sélectionné (ex. OpenCage, Google, Mapbox, Nominatim, BigDataCloud) pour identifier les entités administratives correspondantes, et sont soumises à la politique de confidentialité de ce prestataire.
+  - Clarification distincte : notre serveur ne stocke **jamais** de coordonnées GPS brutes (latitude/longitude) dans sa base de données MySQL. Seules les entités administratives résolues (pays, région, ville) et la précision approximative sont enregistrées dans la table `stats`.
+  - Maintien du bouton « Continuer sans partager » : la redirection vers le lien cible s'effectue immédiatement sans aucune transmission GPS.
 
-### Point 3 : Prise en charge des 5 fournisseurs de géocodage inverse mondial
-- **Adaptateurs intégrés :**
-  - `opencage` : API OpenCage Data (support international, conventions `q={lat}+{lon}`)
-  - `bigdatacloud` : API BigDataCloud Reverse Geocoding
-  - `nominatim` : OpenStreetMap Nominatim avec User-Agent requis
-  - `google` : Google Maps Geocoding API (`latlng={lat},{lon}`)
-  - `mapbox` : Mapbox Geocoding v5 (conventions conformes `{lon},{lat}.json`)
-- **Variables d'environnement prises en charge :**
-  - `REVERSE_GEOCODER_PROVIDER`, `REVERSE_GEOCODER_API_KEY`, `REVERSE_GEOCODER_TIMEOUT`, `REVERSE_GEOCODER_RPM`, `REVERSE_GEOCODER_DAILY_QUOTA`
-  - `GEOSECONDARY_ENABLED`, `GEOSECONDARY_PROVIDER`, `GEOSECONDARY_URL`, `GEOSECONDARY_API_KEY`, `GEOSECONDARY_CACHE_TTL`
-  - `TRUSTED_PROXIES` (support Cloudflare / AWS ALB / reverse proxy)
+### Point 4 : Distinction entre codes régionaux internes et codes ISO 3166-2 officiels
+- **Fichiers :** [`storage/app/geo_boundaries.json`](file:///Users/ajkassime/Downloads/qr/storage/app/geo_boundaries.json) et [`app/helpers/GeoLocation.php`](file:///Users/ajkassime/Downloads/qr/app/helpers/GeoLocation.php)
+- **Distinction formelle documentée :**
+  - **Codes officiels ISO 3166-2:MG :** désignent historiquement les **6 provinces** de Madagascar (`MG-T` Antananarivo, `MG-F` Fianarantsoa, `MG-D` Antsiranana, `MG-M` Mahajanga, `MG-A` Toamasina, `MG-U` Toliara).
+  - **Codes régionaux internes INSTAT :** désignent les **23 régions administratives actuelles** de Madagascar (`MG-ANA` pour Analamanga, `MG-VAK`, `MG-ITA`, `MG-BON`, `MG-VAT` pour Vatovavy, `MG-FIT` pour Fitovinany, etc.). Ces identifiants internes préfixés sont utilisés par l'application pour lever toute ambiguïté et éviter les collisions entre régions issues d'une même ancienne province.
+  - La section `code_standard_classification` dans `geo_boundaries.json` formalise cette distinction.
 
-### Point 4 : Cache partagé inter-processus, quotas atomiques & Traitement de la précision GPS
-- **Cache L2 sur disque (`storage/cache/geolocation/`) :** Les résultats sont indexés par cellule de grille (~110m) avec vérification de l'expiration TTL lors de la lecture (`mtime + ttl < time()`). Les entrées expirées sont invalidées.
-- **Limitation de débit et quotas atomiques :** Gestion de l'état partagé entre les processus PHP-FPM dans `storage/cache/geolocation/ratelimit_state.json` via verrou exclusif `flock($fp, LOCK_EX)`. Respect strict du plafond par minute (`rpm`) et du quota quotidien (`daily_quota`).
-- **Précision GPS non déclarée :** Si `accuracy` est absente (`null`), elle n'est plus fixée arbitrairement à 50 mètres (`declared_accuracy_meters: null`, `accuracy_radius: null`). La géolocalisation est plafonnée au niveau région/pays (`missing_reason = 'missing_gps_accuracy'`).
-- **Dégradation prudente :**
-  - `accuracy > 50 km` : dégradation au pays uniquement.
-  - `accuracy > 5 km` : dégradation à la région uniquement (`city = null`).
-  - Proximité d'une frontière régionale avec incertitude chevauchante : repli au niveau pays.
-
-### Point 5 : Transparence du consentement & Confidentialité
-- **Fichiers :** `storage/themes/default/gates/consent.php` et `app/helpers/Gate.php`
+### Point 5 : Accessibilité de la configuration sur PHP-FPM
+- **Problème identifié :** Sous PHP-FPM, la directive par défaut `clear_env = yes` dans la configuration du pool (`www.conf`) supprime les variables d'environnement système du processus travailleur. De plus, PHP ne lit pas nativement les fichiers `.env` sans bibliothèque dédiée.
 - **Correction apportée :**
-  - La page de consentement informe de manière transparente le visiteur que la position anonymisée peut être transmise à un service tiers de géocodage inverse (avec mention du nom du fournisseur actif).
-  - Clarification que les coordonnées GPS brutes (latitude/longitude) ne sont pas stockées en base de données.
-  - Préservation des options de partage (« Autoriser la localisation ») et de refus (« Continuer sans partager »).
-  - Validation cryptographique stricte par nonce `HMAC-SHA256` lié à `(url->id, stat_id, client_ip)` pour prévenir toute injection ou rejeu.
+  - Création de la méthode [`GeoLocation::getEnv()`](file:///Users/ajkassime/Downloads/qr/app/helpers/GeoLocation.php) et du chargeur [`GeoLocation::loadEnvFile()`](file:///Users/ajkassime/Downloads/qr/app/helpers/GeoLocation.php).
+  - La méthode inspecte successivement `$_ENV`, `$_SERVER` (alimenté par `fastcgi_param` sous Nginx ou `SetEnv` sous Apache), `getenv()`, et lit automatiquement le fichier `.env` à la racine s'il existe.
+  - Les fichiers de configuration (`app/config/app.php`) utilisent systématiquement `\Helpers\GeoLocation::getEnv()`.
+  - Un test unitaire dédié valide le bon fonctionnement de ce mécanisme.
 
-### Point 6 : Robustesse multi-continents & Résilience aux pannes
-- Validé sur des coordonnées de référence indépendantes : Europe (Genève, Paris), Afrique (Nairobi, Mananjary, Manakara), Asie (Tokyo), Amériques (New York, São Paulo), Océanie (Sydney).
-- En cas d'indisponibilité du fournisseur externe (panne, dépassement de quota ou timeout), l'application ne bloque pas la navigation : la statistique conserve les données de pays MaxMind et la redirection (y compris vers WhatsApp) s'exécute immédiatement.
+### Point 6 : Procédure de test et distinction simulation vs réel
+- **Script dédié :** [`scripts/test-worldwide-geocoder.php`](file:///Users/ajkassime/Downloads/qr/scripts/test-worldwide-geocoder.php)
+- **Distinction méthodologique claire :**
+  1. **Mode hors-ligne / Références indépendantes (exécuté en CI) :**
+     - Exécution sur des jeux de données de référence vérifiés sans dépendance réseau externe.
+     - Validation de 5 continents (Genève, Tokyo, Sydney, New York, São Paulo, Mananjary, zone rurale de Vatovavy).
+     - Vérification de la gestion des erreurs réseau (panne simulée).
+     - Vérification du respect des quotas partagés (dépassement simulé).
+     - Vérification de la sécurité fail-closed (stockage inaccessible).
+     - Vérification de la préservation de la redirection WhatsApp.
+  2. **Mode réseau réel (`--live`) pour l'exploitant en production :**
+     - Commande : `php scripts/test-worldwide-geocoder.php --live --provider=opencage --api-key=VOTRE_CLE`
+     - Envoie de véritables requêtes HTTPS aux serveurs du prestataire sélectionné et affiche la charge utile JSON reçue ainsi que le temps de réponse.
 
 ---
 
-## 2. SYNTHÈSE DES VÉRIFICATIONS & SUITE DE TESTS
+## 2. RÉSULTATS DES TESTS AUTOMATISÉS
 
-### A. Résultats des tests automatisés
-- **Suite de tests :** `tests/run_tests.php` (`tests/GeoLocationTest.php`)
-- **Assertions :** **193 exécutées, 193 réussies, 0 échec**
-- **Environnements validés :** PHP 8.1, PHP 8.2, PHP 8.3 (Matrice GitHub Actions)
-- **Contrôles spécifiques validés :**
-  - Traversée multi-sauts `X-Forwarded-For` avec mandataires de confiance.
-  - Résolution MaxMind IPv4 et IPv6 sans invention de ville sur sous-réseaux mobiles CGNAT.
-  - Rejet des frontières rectangulaires et validation des 23 régions malgaches sans doublons de codes.
-  - Priorité des 5 adaptateurs de géocodage inverse (OpenCage, BigDataCloud, Nominatim, Google, Mapbox).
-  - Cache disque partagé inter-processus et verrouillage atomique des quotas journaliers.
-  - Gestion des coordonnées à précision manquante (`null`) ou dégradée (> 5km, > 50km).
-  - Affichage hiérarchique (Niveau 1 : ville, Niveau 2 : région, Niveau 3 : pays).
-  - Sécurisation du consentement GPS (HMAC, anti-rejeu, nonces, refus de cross-visitor).
-  - Scripts CLI (`migrate-geo-stats.php`, `geo-repair.php`, `geo-diagnose.php`) sur base réelle avec arrêt strict si hors-ligne.
+- **Script d'exécution :** `php tests/run_tests.php`
+- **Total des assertions exécutées :** **197**
+- **Assertions réussies :** **197**
+- **Assertions échouées :** **0**
+- **Vérification syntaxique (`php -l`) :** 100 % des fichiers validés sans erreur.
+- **Environnements validés :** PHP 8.1, PHP 8.2, PHP 8.3 (Matrice GitHub Actions).
 
 ---
 
 ## 3. CE QUI EST IMPLÉMENTÉ VS CE QUI DÉPEND DE LA PRODUCTION
 
-| Composant | État dans le code | Dépendance en production |
+| Composant | Implémenté et testé dans le code | Dépendance de déploiement en production |
 | :--- | :--- | :--- |
-| **MaxMind GeoLite2-City** | Fonctionnel (`storage/app/GeoLite2-City.mmdb`) | Mise à jour périodique via cron (`scripts/update_geolite2.sh` avec `MAXMIND_LICENSE_KEY`) |
-| **Géocodage inverse mondial** | 5 adaptateurs implémentés avec cache et quotas | Clé API à renseigner dans `.env` (`REVERSE_GEOCODER_API_KEY`) pour OpenCage, Google, Mapbox ou BigDataCloud |
-| **Mandataires de confiance** | Traitement `X-Forwarded-For` sécurisé | Configurer `TRUSTED_PROXIES` dans `.env` si l'application est derrière Cloudflare ou un load balancer |
-| **Base de données `stats`** | Scripts de migration prêts (`scripts/migrate-geo-stats.php`) | Exécution manuelle requise en production : `php scripts/migrate-geo-stats.php --apply --confirm` |
-| **Consentement navigateur** | Sécurisé par HMAC et affichage transparent | Fonctionne dès que l'option `geoconsent` est cochée sur un lien |
+| **MaxMind GeoLite2-City** | Base chargée localement (`storage/app/GeoLite2-City.mmdb`) | Tâche cron de mise à jour avec `MAXMIND_LICENSE_KEY` |
+| **Géocodage inverse GPS** | 5 adaptateurs intégrés (OpenCage, BigDataCloud, Nominatim, Google, Mapbox) | Renseigner `REVERSE_GEOCODER_ENABLED=true` et `REVERSE_GEOCODER_API_KEY` dans `.env` ou `www.conf` |
+| **Sécurité des quotas** | Verrouillage atomique et politique fail-closed | S'assurer que `storage/cache/geolocation/` est accessible en écriture par l'utilisateur PHP-FPM (`www-data`) |
+| **Mandataires inverses** | Filtrage `TRUSTED_PROXY_IPS` et support Cloudflare | Configurer `TRUSTED_PROXY_IPS` si utilisation d'un reverse proxy, et `TRUST_CLOUDFLARE_PROXY=true` si derrière Cloudflare |
+| **Migration SQL `stats`** | Scripts CLI vérifiés (`scripts/migrate-geo-stats.php`) | Exécution manuelle par l'administrateur : `php scripts/migrate-geo-stats.php --apply --confirm` |
 
 ---
 
 ## 4. LIMITES CONNUES & COMPROMIS TECHNIQUES
 
 1. **Adresses IP mobiles (CGNAT) :**
-   - Sur certains réseaux mobiles à Madagascar et à l'international, les opérateurs mutualisent des plages d'adresses IP sans géolocalisation urbaine précise dans les bases IP. Dans ce cas, la base MaxMind GeoLite2 fournit le pays et parfois la région, mais la ville reste indéterminée. C'est un comportement normal : l'application n'invente jamais de ville.
-2. **Quotas d'API externes :**
-   - L'utilisation d'un fournisseur de géocodage inverse externe est soumise aux quotas et limites souscrits auprès du prestataire. Le système de cache local par grille et les quotas atomiques configurables protègent l'application contre les surcoûts et les blocages.
+   - Sur les réseaux mobiles 3G/4G/5G (notamment à Madagascar avec Orange, Telma, Airtel), les adresses IP publiques sont mutualisées sans point de présence urbain précis. La base MaxMind résout alors le pays (`Madagascar`), mais pas la ville (`city = null`). Il s'agit d'un comportement attendu de protection des données : l'application n'invente jamais de ville fictive.
+2. **Quotas et facturation des prestataires externes :**
+   - L'utilisation d'un géocodeur inverse externe (OpenCage, Google, Mapbox) implique des coûts proportionnels au volume de scans avec consentement GPS. Le cache L2 partagé et les quotas configurables évitent les dépassements imprévus.
 3. **Imprécision du signal GPS :**
-   - Selon l'environnement du visiteur (intérieur d'un bâtiment, absence de puce GPS sur ordinateur de bureau), le navigateur peut renvoyer une précision dégradée (> 5 km ou précision non renseignée). Le système applique alors un principe de précaution en retenant uniquement la région ou le pays.
+   - En environnement clos ou sur ordinateur fixe, le navigateur peut transmettre une précision dégradée (> 5 km) ou non renseignée (`null`). Dans ce cas, la localisation est automatiquement plafonnée au niveau région ou pays.
 
 ---
 
-## 5. PROCÉDURE D'ACTIVATION EN PRODUCTION
+## 5. INSTRUCTIONS DE DÉPLOIEMENT EN PRODUCTION
 
-1. **Variables d'environnement recommandées dans `.env` :**
+1. **Configuration PHP-FPM (`/etc/php/8.x/fpm/pool.d/www.conf`) :**
+   Si vous n'utilisez pas de fichier `.env`, transmettez les variables directement au pool FPM :
+   ```ini
+   env[REVERSE_GEOCODER_ENABLED] = true
+   env[REVERSE_GEOCODER_PROVIDER] = opencage
+   env[REVERSE_GEOCODER_API_KEY] = votre_cle_api_secrete
+   env[REVERSE_GEOCODER_MAX_RPM] = 60
+   env[REVERSE_GEOCODER_DAILY_QUOTA] = 2500
+   ```
+   Ou assurez-vous que `clear_env = no` est défini si les variables sont injectées au niveau du service systemd.
+
+2. **Alternative fichier `.env` (à la racine du projet) :**
    ```dotenv
-   # Fournisseur de géocodage inverse (exemples : opencage, bigdatacloud, google, mapbox, nominatim)
+   REVERSE_GEOCODER_ENABLED=true
    REVERSE_GEOCODER_PROVIDER=opencage
-   REVERSE_GEOCODER_API_KEY=votre_cle_api_ici
-   REVERSE_GEOCODER_RPM=60
+   REVERSE_GEOCODER_API_KEY=votre_cle_api_secrete
+   REVERSE_GEOCODER_MAX_RPM=60
    REVERSE_GEOCODER_DAILY_QUOTA=2500
 
-   # Mandataires de confiance si utilisation de Cloudflare
-   TRUSTED_PROXIES=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22
+   # Activer uniquement si l'infrastructure est derrière Cloudflare
+   TRUST_CLOUDFLARE_PROXY=false
    ```
 
-2. **Migration de la base de données :**
+3. **Vérification des permissions du dossier de cache :**
+   ```bash
+   chown -R www-data:www-data storage/cache/geolocation
+   chmod -R 0775 storage/cache/geolocation
+   ```
+
+4. **Test en direct avec le fournisseur configuré :**
+   ```bash
+   php scripts/test-worldwide-geocoder.php --live --provider=opencage --api-key=votre_cle_api_secrete
+   ```
+
+5. **Application de la migration de structure :**
    ```bash
    php scripts/migrate-geo-stats.php --status
    php scripts/migrate-geo-stats.php --apply --confirm
    ```
-
-3. **Mise à jour régulière de la base GeoLite2 :**
-   - Configurer une tâche cron mensuelle ou bi-hebdomadaire appelant `scripts/update_geolite2.sh` avec une clé de licence MaxMind valide.

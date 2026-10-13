@@ -141,6 +141,33 @@ class GeoLocationTest {
         $enriched = \Helpers\GeoLocation::locate('196.192.32.1', ['bypass_cache' => true]);
         self::assert($enriched['region'] === 'Vatovavy' && $enriched['region_code'] === 'MG-VAT' && $enriched['city'] === null && $enriched['location_level'] === 'region' && $enriched['source'] === 'secondary_provider', "Secondary provider enriches region with unique code MG-VAT without inventing city", $results);
         \Helpers\GeoLocation::clearCache();
+
+        // Test GEOSECONDARY_URL parameter interpolation
+        $customUrlInterpolated = null;
+        \Helpers\GeoLocation::setSecondaryProviderConfig([
+            'enabled'   => true,
+            'provider'  => 'custom',
+            'api_key'   => 'sec_secret_key',
+            'url'       => 'https://geo-custom.example.org/lookup?ip={ip}&token={key}',
+            'cache_ttl' => 0,
+        ]);
+        \Helpers\GeoLocation::setMockHttpTransport(function ($url) use (&$customUrlInterpolated) {
+            $customUrlInterpolated = $url;
+            return json_encode([
+                'city'         => 'Mananjary',
+                'region'       => 'Vatovavy',
+                'country_name' => 'Madagascar',
+                'country'      => 'MG',
+            ]);
+        });
+        $secUrlRes = \Helpers\GeoLocation::locate('196.192.32.1', ['bypass_cache' => true]);
+        self::assert(
+            $customUrlInterpolated === 'https://geo-custom.example.org/lookup?ip=196.192.32.1&token=sec_secret_key' &&
+            $secUrlRes['region'] === 'Vatovavy' && $secUrlRes['city'] === 'Mananjary',
+            "GEOSECONDARY_URL correctly interpolates {ip} and {key} parameters for custom secondary endpoints",
+            $results
+        );
+        \Helpers\GeoLocation::clearCache();
     }
 
     public static function testRemovalOfFakeBoundariesAndUniqueMadagascarCodes(&$results) {
@@ -173,6 +200,15 @@ class GeoLocationTest {
             $unconfigured['location_level'] === 'unknown' &&
             $unconfigured['missing_reason'] === 'reverse_geocoder_disabled',
             "Without an active reverse geocoder, resolveCoordinates never invents a city or region from local approximate polygons",
+            $results
+        );
+
+        // 5. Verify formal distinction between ISO 3166-2:MG provinces and internal INSTAT regional codes
+        $boundariesJson = json_decode(file_get_contents(STORAGE . '/app/geo_boundaries.json'), true);
+        self::assert(
+            isset($boundariesJson['code_standard_classification']['official_iso_3166_2_provinces']) &&
+            isset($boundariesJson['code_standard_classification']['internal_instat_regional_codes']),
+            "geo_boundaries.json clearly distinguishes official ISO 3166-2:MG provinces from internal INSTAT regional codes",
             $results
         );
     }
@@ -568,6 +604,40 @@ class GeoLocationTest {
 
         self::assert(\Helpers\GeoLocation::maskApiKey('abcdef1234567890xyz') === 'abc*************xyz', "maskApiKey hides sensitive API key characters", $results);
 
+        // 6. Test fail-closed quota storage protection: if quota file/directory is inaccessible or cannot be locked,
+        // it must prevent any uncounted external call!
+        $tempFileAsDir = tempnam(sys_get_temp_dir(), 'geo_inaccessible_');
+        \Helpers\GeoLocation::setCacheDirectory($tempFileAsDir);
+        $externalCalledOnInaccessible = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$externalCalledOnInaccessible) {
+            $externalCalledOnInaccessible = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resInaccessible = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        \Helpers\GeoLocation::setCacheDirectory(null);
+        @unlink($tempFileAsDir);
+
+        self::assert(
+            $resInaccessible['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$externalCalledOnInaccessible &&
+            $resInaccessible['location_level'] === 'unknown',
+            "Inaccessible quota storage or lock failure prevents uncounted external call (fail-closed security)",
+            $results
+        );
+
+        // 7. Test PHP-FPM environment variable accessibility and .env parsing
+        $tmpEnvFile = tempnam(sys_get_temp_dir(), 'test_env_');
+        file_put_contents($tmpEnvFile, "CUSTOM_TEST_GEO_VAR=\"loaded_from_env_file\"\nREVERSE_GEOCODER_MAX_RPM=45\n");
+        \Helpers\GeoLocation::loadEnvFile($tmpEnvFile);
+        $readEnv = \Helpers\GeoLocation::getEnv('CUSTOM_TEST_GEO_VAR');
+        $readRpm = \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_MAX_RPM');
+        @unlink($tmpEnvFile);
+        self::assert(
+            $readEnv === 'loaded_from_env_file' && (int) $readRpm === 45,
+            "GeoLocation::getEnv and loadEnvFile ensure environment variables are accessible across PHP-FPM without relying on automatic .env loading",
+            $results
+        );
+
         \Helpers\GeoLocation::clearCache();
         @rmdir($tmpCacheDir);
     }
@@ -808,10 +878,10 @@ class GeoLocationTest {
 
         self::assert(!empty($generatedNonce) && strlen($generatedNonce) === 64, "Gate::consentLocation generates 64-char HMAC-SHA256 scan-bound nonce", $results);
         self::assert(
-            strpos($consentHtml, 'fournisseur externe de géocodage inverse') !== false &&
+            strpos($consentHtml, 'fournisseur tiers de géocodage inverse') !== false &&
             strpos($consentHtml, 'OpenCage Geocoding API') !== false &&
             strpos($consentHtml, 'Continuer sans partager') !== false &&
-            strpos($consentHtml, 'jamais divulguées') === false,
+            strpos($consentHtml, 'ne sont pas anonymisées') !== false,
             "Consent page transparently discloses external reverse geocoding transmission and provider name without false non-disclosure claims",
             $results
         );

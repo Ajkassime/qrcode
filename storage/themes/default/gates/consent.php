@@ -27,15 +27,19 @@
 
                         <div class="text-muted mt-4 mb-0 text-start border-top pt-3" style="font-size: 0.75rem;">
                             <p class="mb-1">
-                                <strong><?php ee('Confidentialité et traitement des données :') ?></strong>
-                                <?php ee('Vos coordonnées GPS brutes ne sont pas enregistrées dans notre base de données ; seuls le pays, la région administrative et la ville correspondante sont conservés pour les statistiques.') ?>
+                                <strong><?php ee('Confidentialité et transmission des données :') ?></strong>
+                                <?php if (!empty($geocoderInfo['sends_external'])): ?>
+                                    <?php ee('En cliquant sur « Autoriser et continuer », vos coordonnées GPS précises (latitude, longitude et rayon d\'incertitude) sont transmises au fournisseur tiers de géocodage inverse') ?><?php echo !empty($geocoderInfo['provider_name']) ? ' (' . htmlspecialchars($geocoderInfo['provider_name'], ENT_QUOTES, 'UTF-8') . ')' : ''; ?> <?php ee('afin d\'identifier votre pays, votre région et votre ville. Ces coordonnées sont traitées par ce prestataire externe selon ses conditions de service et ne sont pas anonymisées lors de cette transmission.') ?>
+                                <?php else: ?>
+                                    <?php ee('Si un fournisseur externe de géocodage inverse est activé, vos coordonnées GPS précises lui sont transmises afin d\'identifier votre zone géographique.') ?>
+                                <?php endif; ?>
+                            </p>
+                            <p class="mb-1">
+                                <strong><?php ee('Données conservées sur nos serveurs :') ?></strong>
+                                <?php ee('Notre plateforme ne conserve aucune coordonnée GPS brute (latitude ou longitude) dans sa base de données. Seules les entités administratives résolues (pays, région administrative, ville) et la précision approximative sont enregistrées dans les statistiques.') ?>
                             </p>
                             <p class="mb-0">
-                                <?php if (!empty($geocoderInfo['sends_external'])): ?>
-                                    <?php ee('En cliquant sur « Autoriser et continuer », vos coordonnées GPS sont transmises à un fournisseur externe de géocodage inverse') ?><?php echo !empty($geocoderInfo['provider_name']) ? ' (' . htmlspecialchars($geocoderInfo['provider_name'], ENT_QUOTES, 'UTF-8') . ')' : ''; ?> <?php ee('afin de déterminer votre région ou votre ville.') ?>
-                                <?php else: ?>
-                                    <?php ee('Si un fournisseur externe de géocodage inverse est activé, vos coordonnées GPS peuvent lui être transmises ponctuellement afin de déterminer votre région ou votre ville. Vous pouvez continuer sans partager votre position.') ?>
-                                <?php endif; ?>
+                                <?php ee('Vous êtes libre de refuser en cliquant sur « Continuer sans partager » : votre redirection s\'effectuera immédiatement sans transmission ni enregistrement de votre position GPS.') ?>
                             </p>
                         </div>
                     </div>

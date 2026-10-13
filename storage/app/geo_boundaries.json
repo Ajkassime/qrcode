@@ -3,6 +3,16 @@
   "authoritative_polygons": false,
   "license": "CC0-1.0 / ISO-3166 Reference Metadata",
   "description": "Administrative Subdivision Reference Registry (ISO 3166-1 / Unique Madagascar 23-Region Codes). Approximate rectangular polygons have been removed and are never used to assign cities or regions in production. Coordinate resolution requires a configured reverse geocoding provider or an external authoritative multi-vertex GeoJSON boundary dataset.",
+  "code_standard_classification": {
+    "official_iso_3166_2_provinces": {
+      "standard": "ISO 3166-2:MG",
+      "description": "Codes officiels de la norme internationale ISO 3166-2:MG désignant les 6 provinces historiques de Madagascar : MG-T (Antananarivo), MG-F (Fianarantsoa), MG-D (Antsiranana), MG-M (Mahajanga), MG-A (Toamasina), MG-U (Toliara)."
+    },
+    "internal_instat_regional_codes": {
+      "standard": "INSTAT / Découpage administratif interne à 23 régions",
+      "description": "Codes régionaux internes uniques préfixés par MG- (ex. MG-ANA pour Analamanga, MG-VAT pour Vatovavy, MG-FIT pour Fitovinany) utilisés par l'application pour lever toute ambiguïté et identifier individuellement chaque région administrative sans collision avec la norme ISO 3166-2."
+    }
+  },
   "madagascar_regions": [
     {
       "name": "Analamanga",

@@ -179,23 +179,24 @@ return [
 	 * to prevent client IP spoofing.
 	 */
 	'trusted_proxies' => [
-		// Array of trusted proxy CIDRs/IPs (or comma-separated TRUSTED_PROXY_IPS env var)
-		'ips' => getenv('TRUSTED_PROXY_IPS') ? array_values(array_filter(array_map('trim', explode(',', getenv('TRUSTED_PROXY_IPS'))))) : [],
+		// Array of trusted proxy CIDRs/IPs (via TRUSTED_PROXY_IPS env var or array)
+		'ips' => \Helpers\GeoLocation::getEnv('TRUSTED_PROXY_IPS') ? array_values(array_filter(array_map('trim', explode(',', (string) \Helpers\GeoLocation::getEnv('TRUSTED_PROXY_IPS'))))) : [],
 		// When true, requests originating from official Cloudflare IPv4/IPv6 ranges will trust CF-Connecting-IP
-		'trust_cloudflare' => filter_var(getenv('TRUST_CLOUDFLARE_PROXY') ?: false, FILTER_VALIDATE_BOOLEAN),
+		'trust_cloudflare' => filter_var(\Helpers\GeoLocation::getEnv('TRUST_CLOUDFLARE_PROXY', false), FILTER_VALIDATE_BOOLEAN),
 	],
 
 	/**
 	 * Secondary GeoIP Provider (Optional Fallback)
 	 * Disabled by default. Only used when MaxMind city is undetermined and explicit credentials are provided.
-	 * Supported providers: 'ipinfo', 'ipapi'
+	 * Supported providers: 'ipinfo', 'ipapi', or custom endpoint via 'url'
 	 */
 	'geosecondary' => [
-		'enabled' => filter_var(getenv('GEOSECONDARY_ENABLED') ?: false, FILTER_VALIDATE_BOOLEAN),
-		'provider' => getenv('GEOSECONDARY_PROVIDER') ?: 'ipinfo',
-		'api_key' => getenv('GEOSECONDARY_API_KEY') ?: '',
-		'timeout' => getenv('GEOSECONDARY_TIMEOUT') ? (float) getenv('GEOSECONDARY_TIMEOUT') : 1.5,
-		'cache_ttl' => getenv('GEOSECONDARY_CACHE_TTL') ? (int) getenv('GEOSECONDARY_CACHE_TTL') : 86400,
+		'enabled' => filter_var(\Helpers\GeoLocation::getEnv('GEOSECONDARY_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+		'provider' => \Helpers\GeoLocation::getEnv('GEOSECONDARY_PROVIDER', 'ipinfo'),
+		'api_key' => \Helpers\GeoLocation::getEnv('GEOSECONDARY_API_KEY', ''),
+		'url' => \Helpers\GeoLocation::getEnv('GEOSECONDARY_URL', ''),
+		'timeout' => \Helpers\GeoLocation::getEnv('GEOSECONDARY_TIMEOUT') ? (float) \Helpers\GeoLocation::getEnv('GEOSECONDARY_TIMEOUT') : 1.5,
+		'cache_ttl' => \Helpers\GeoLocation::getEnv('GEOSECONDARY_CACHE_TTL') ? (int) \Helpers\GeoLocation::getEnv('GEOSECONDARY_CACHE_TTL') : 86400,
 	],
 
 	/**
@@ -206,16 +207,16 @@ return [
 	 * Implemented providers: 'opencage', 'bigdatacloud', 'nominatim', 'google', 'mapbox'
 	 */
 	'reverse_geocoder' => [
-		'enabled' => filter_var(getenv('REVERSE_GEOCODER_ENABLED') ?: false, FILTER_VALIDATE_BOOLEAN),
-		'provider' => getenv('REVERSE_GEOCODER_PROVIDER') ?: 'opencage',
-		'api_key' => getenv('REVERSE_GEOCODER_API_KEY') ?: '',
-		'endpoint' => getenv('REVERSE_GEOCODER_ENDPOINT') ?: '',
-		'timeout' => getenv('REVERSE_GEOCODER_TIMEOUT') ? (float) getenv('REVERSE_GEOCODER_TIMEOUT') : 1.5,
-		'cache_ttl' => getenv('REVERSE_GEOCODER_CACHE_TTL') ? (int) getenv('REVERSE_GEOCODER_CACHE_TTL') : 86400,
-		'max_requests_per_minute' => getenv('REVERSE_GEOCODER_MAX_RPM') ? (int) getenv('REVERSE_GEOCODER_MAX_RPM') : 60,
-		'daily_quota' => getenv('REVERSE_GEOCODER_DAILY_QUOTA') ? (int) getenv('REVERSE_GEOCODER_DAILY_QUOTA') : 2500,
-		'user_agent' => getenv('REVERSE_GEOCODER_USER_AGENT') ?: 'QRCodePlatform-GeoResolver/1.0',
-		'tos_accepted' => filter_var(getenv('REVERSE_GEOCODER_TOS_ACCEPTED') !== false ? getenv('REVERSE_GEOCODER_TOS_ACCEPTED') : true, FILTER_VALIDATE_BOOLEAN),
+		'enabled' => filter_var(\Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+		'provider' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_PROVIDER', 'opencage'),
+		'api_key' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_API_KEY', ''),
+		'endpoint' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_ENDPOINT', ''),
+		'timeout' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_TIMEOUT') ? (float) \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_TIMEOUT') : 1.5,
+		'cache_ttl' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_CACHE_TTL') ? (int) \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_CACHE_TTL') : 86400,
+		'max_requests_per_minute' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_MAX_RPM') ? (int) \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_MAX_RPM') : 60,
+		'daily_quota' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_DAILY_QUOTA') ? (int) \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_DAILY_QUOTA') : 2500,
+		'user_agent' => \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_USER_AGENT', 'QRCodePlatform-GeoResolver/1.0'),
+		'tos_accepted' => filter_var(\Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_TOS_ACCEPTED', true), FILTER_VALIDATE_BOOLEAN),
 		'boundaries_path' => STORAGE.'/app/geo_boundaries.json',
 	],
 

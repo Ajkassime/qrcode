@@ -257,7 +257,7 @@ class GeoLocation {
             $dir = rtrim($base, '/\\') . '/geolocation';
         }
 
-        if (!is_dir($dir)) {
+        if (!file_exists($dir)) {
             @mkdir($dir, 0775, true);
         }
 
@@ -350,6 +350,103 @@ class GeoLocation {
     }
 
     /**
+     * Track whether .env file has been loaded into environment
+     * @var bool
+     */
+    protected static $envLoaded = false;
+
+    /**
+     * Parse and load key-value pairs from a .env file into $_ENV, $_SERVER and putenv.
+     * Prevents issues on PHP-FPM where OS environment variables might not be populated or clear_env=yes is active.
+     */
+    public static function loadEnvFile(?string $path = null): bool {
+        if ($path === null) {
+            $candidates = [
+                defined('ROOT') ? ROOT . '/.env' : null,
+                dirname(__DIR__, 2) . '/.env',
+                getcwd() . '/.env',
+            ];
+            foreach ($candidates as $cand) {
+                if ($cand !== null && is_file($cand) && is_readable($cand)) {
+                    $path = $cand;
+                    break;
+                }
+            }
+        }
+
+        if ($path === null || !is_file($path) || !is_readable($path)) {
+            self::$envLoaded = true;
+            return false;
+        }
+
+        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!is_array($lines)) {
+            self::$envLoaded = true;
+            return false;
+        }
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+            list($key, $val) = explode('=', $line, 2);
+            $key = trim($key);
+            $val = trim($val);
+
+            // Strip surrounding quotes
+            if (strlen($val) >= 2 && (($val[0] === '"' && substr($val, -1) === '"') || ($val[0] === "'" && substr($val, -1) === "'"))) {
+                $val = substr($val, 1, -1);
+            }
+
+            if (!isset($_ENV[$key])) {
+                $_ENV[$key] = $val;
+            }
+            if (!isset($_SERVER[$key])) {
+                $_SERVER[$key] = $val;
+            }
+            if (getenv($key) === false) {
+                @putenv("{$key}={$val}");
+            }
+        }
+
+        self::$envLoaded = true;
+        return true;
+    }
+
+    /**
+     * Retrieve an environment variable value reliably across PHP-FPM, CLI, and web server environments.
+     * Inspects $_ENV, $_SERVER, getenv(), and auto-loads .env if available.
+     *
+     * @param string $key
+     * @param mixed $default
+     * @return mixed
+     */
+    public static function getEnv(string $key, $default = null) {
+        if (!self::$envLoaded) {
+            self::loadEnvFile();
+        }
+
+        if (isset($_ENV[$key]) && $_ENV[$key] !== '') {
+            return $_ENV[$key];
+        }
+
+        if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+            return $_SERVER[$key];
+        }
+
+        $val = getenv($key);
+        if ($val !== false && $val !== '') {
+            return $val;
+        }
+
+        return $default;
+    }
+
+    /**
      * Clear resolution caches, shared cache files, and mocks
      */
     public static function clearCache(bool $clearSharedFiles = true): void {
@@ -368,6 +465,7 @@ class GeoLocation {
         self::$boundariesData = null;
         self::$customBoundariesPath = null;
         self::$statsColumnsCache = null;
+        self::$envLoaded = false;
     }
 
     /**
@@ -473,9 +571,11 @@ class GeoLocation {
     }
 
     /**
-     * Update or read shared cross-process rate-limit & quota state atomically using flock(LOCK_EX)
+     * Update or read shared cross-process rate-limit & quota state atomically using flock(LOCK_EX).
+     * Returns null if file is inaccessible or locking fails, ensuring fail-closed protection
+     * against uncounted or unconstrained external API calls.
      */
-    protected static function mutateSharedQuotaState(callable $mutator): array {
+    protected static function mutateSharedQuotaState(callable $mutator): ?array {
         $defaultState = [
             'requests_total'       => 0,
             'cache_hits'           => 0,
@@ -492,21 +592,23 @@ class GeoLocation {
         $file = $dir . '/ratelimit_state.json';
         $fp = @fopen($file, 'c+b');
         if (!$fp) {
-            return $mutator($defaultState);
+            // Fail-closed: prevent uncounted external calls when state file is inaccessible
+            return null;
         }
 
-        $state = $defaultState;
+        $state = null;
         if (@flock($fp, LOCK_EX)) {
             rewind($fp);
             $raw = stream_get_contents($fp);
+            $currentState = $defaultState;
             if (is_string($raw) && $raw !== '') {
                 $decoded = json_decode($raw, true);
                 if (is_array($decoded)) {
-                    $state = array_merge($defaultState, $decoded);
+                    $currentState = array_merge($defaultState, $decoded);
                 }
             }
 
-            $state = $mutator($state);
+            $state = $mutator($currentState);
 
             ftruncate($fp, 0);
             rewind($fp);
@@ -516,6 +618,7 @@ class GeoLocation {
         }
         @fclose($fp);
 
+        // If flock failed, $state remains null (fail-closed)
         return $state;
     }
 
@@ -523,9 +626,21 @@ class GeoLocation {
      * Get reverse geocoder usage and cost/quota telemetry across PHP processes
      */
     public static function getReverseGeocoderStats(): array {
-        return self::mutateSharedQuotaState(function (array $state) {
+        $defaultState = [
+            'requests_total'       => 0,
+            'cache_hits'           => 0,
+            'quota_exceeded_count' => 0,
+            'errors_count'         => 0,
+            'minute_window'        => 0,
+            'minute_count'         => 0,
+            'day_window'           => '',
+            'day_count'            => 0,
+            'last_request_time'    => 0,
+        ];
+        $res = self::mutateSharedQuotaState(function (array $state) {
             return $state;
         });
+        return is_array($res) ? $res : $defaultState;
     }
 
     /**
@@ -816,7 +931,7 @@ class GeoLocation {
         }
 
         $config = self::getSecondaryProviderConfig();
-        return !empty($config['enabled']) && !empty($config['api_key']);
+        return !empty($config['enabled']) && (!empty($config['api_key']) || !empty($config['url']));
     }
 
     /**
@@ -847,18 +962,24 @@ class GeoLocation {
             return null;
         }
 
-        if (empty($config['enabled']) || empty($config['api_key'])) {
+        if (empty($config['enabled'])) {
             return null;
         }
 
         $provider = strtolower((string) ($config['provider'] ?? 'ipinfo'));
         $timeout = isset($config['timeout']) ? (float) $config['timeout'] : 1.5;
+        $urlTemplate = !empty($config['url']) ? trim((string) $config['url']) : '';
+        $apiKey = !empty($config['api_key']) ? trim((string) $config['api_key']) : '';
 
         try {
-            if ($provider === 'ipinfo') {
-                $url = "https://ipinfo.io/{$ip}/json?token=" . urlencode($config['api_key']);
+            if ($urlTemplate !== '') {
+                $url = str_replace(['{ip}', '{key}'], [urlencode($ip), urlencode($apiKey)], $urlTemplate);
+            } elseif ($provider === 'ipinfo') {
+                if (empty($apiKey)) return null;
+                $url = "https://ipinfo.io/{$ip}/json?token=" . urlencode($apiKey);
             } elseif ($provider === 'ipapi') {
-                $url = "https://ipapi.co/{$ip}/json/?key=" . urlencode($config['api_key']);
+                if (empty($apiKey)) return null;
+                $url = "https://ipapi.co/{$ip}/json/?key=" . urlencode($apiKey);
             } else {
                 return null;
             }
@@ -1710,8 +1831,8 @@ class GeoLocation {
         $dailyQuota = isset($config['daily_quota']) ? (int) $config['daily_quota'] : 2500;
         $now = self::currentTime();
 
-        $allowed = true;
-        self::mutateSharedQuotaState(function (array $state) use ($maxPerMinute, $dailyQuota, $now, &$allowed) {
+        $allowed = false;
+        $stateResult = self::mutateSharedQuotaState(function (array $state) use ($maxPerMinute, $dailyQuota, $now, &$allowed) {
             $currentMinute = (int) floor($now / 60);
             if ($state['minute_window'] !== $currentMinute) {
                 $state['minute_window'] = $currentMinute;
@@ -1734,8 +1855,14 @@ class GeoLocation {
             $state['day_count']++;
             $state['requests_total']++;
             $state['last_request_time'] = $now;
+            $allowed = true;
             return $state;
         });
+
+        if ($stateResult === null) {
+            $errorReason = 'quota_storage_inaccessible';
+            return null;
+        }
 
         if (!$allowed) {
             $errorReason = 'quota_exceeded';
