@@ -348,11 +348,16 @@ if ($whatsappCheck || !$liveMode) {
     $testUrl->options = json_encode(['geoconsent' => true]);
 
     // Step A: Link Hit / Consent Gate generation
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
     if (isset(\Gem::$Config)) {
         \Gem::$Config->title = \Gem::$Config->title ?? 'QRCode Platform';
         \Gem::$Config->keywords = \Gem::$Config->keywords ?? 'qrcode';
         \Gem::$Config->twitter = \Gem::$Config->twitter ?? '';
         \Gem::$Config->favicon = \Gem::$Config->favicon ?? '';
+        \Gem::$Config->cookieconsent = (object)['enabled' => false];
+        \Gem::$Config->theme = \Gem::$Config->theme ?? 'the23';
     }
     $_SESSION = ['last_stat_777' => 999];
     $_SERVER['REMOTE_ADDR'] = '196.192.32.1';

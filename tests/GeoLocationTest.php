@@ -782,9 +782,10 @@ class GeoLocationTest {
         \Helpers\GeoLocation::setCacheDirectory($mockProdDir);
 
         // Execute test-worldwide-geocoder.php CLI (must exit with code 0 on success)
+        $phpBin = escapeshellarg(PHP_BINARY);
         $cmdOutput = [];
         $cmdExitCode = -1;
-        exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' 2>&1', $cmdOutput, $cmdExitCode);
+        exec($phpBin . ' ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' 2>&1', $cmdOutput, $cmdExitCode);
         \Helpers\GeoLocation::setCacheDirectory(null);
 
         $prodFileStillExists = file_exists($mockProdDir . '/ratelimit_state.json');
@@ -793,16 +794,17 @@ class GeoLocationTest {
         @unlink($mockProdDir . '/ratelimit.lock');
         @rmdir($mockProdDir);
 
+        $cmdErrorDetails = ($cmdExitCode !== 0) ? " (Exit code: {$cmdExitCode}, Output: " . implode(" \n ", array_slice($cmdOutput, -5)) . ")" : "";
         self::assert(
             $cmdExitCode === 0 && $prodFileStillExists && $prodFileContentAfterTest === $prodStatePayload,
-            "test-worldwide-geocoder.php exits with status code 0, operates in isolated temp directory and never deletes or alters production quotas",
+            "test-worldwide-geocoder.php exits with status code 0, operates in isolated temp directory and never deletes or alters production quotas" . $cmdErrorDetails,
             $results
         );
 
         // Execute test-worldwide-geocoder.php with missing required API key (must exit with non-zero code)
         $failOutput = [];
         $failExitCode = 0;
-        exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' --live 2>&1', $failOutput, $failExitCode);
+        exec($phpBin . ' ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' --live 2>&1', $failOutput, $failExitCode);
         self::assert(
             $failExitCode === 1,
             "test-worldwide-geocoder.php exits with non-zero exit code (1) when required live configuration is missing",

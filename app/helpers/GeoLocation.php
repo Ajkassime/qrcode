@@ -510,7 +510,9 @@ class GeoLocation {
                 @unlink($tf);
             }
         }
-        @unlink($dir . '/ratelimit.lock');
+        if (file_exists($dir . '/ratelimit.lock')) {
+            @unlink($dir . '/ratelimit.lock');
+        }
     }
 
     /**
@@ -617,6 +619,9 @@ class GeoLocation {
         ];
 
         $dir = self::getCacheDirectory();
+        if (file_exists($dir) && !is_dir($dir)) {
+            return null;
+        }
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             return null;
         }

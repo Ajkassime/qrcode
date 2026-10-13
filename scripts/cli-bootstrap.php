@@ -76,6 +76,27 @@ if (empty($cliDbDsn) && file_exists(ROOT . '/config.php')) {
 if (!defined('DEBUG')) {
     define('DEBUG', 0);
 }
+if (!defined('USECDN')) {
+    define('USECDN', false);
+}
+if (!defined('CDNASSETS')) {
+    define('CDNASSETS', null);
+}
+if (!defined('CDNUPLOADS')) {
+    define('CDNUPLOADS', null);
+}
+if (!defined('AuthToken')) {
+    define('AuthToken', 'cli_auth_token_default_fallback_123456');
+}
+if (!defined('EncryptionToken')) {
+    define('EncryptionToken', 'cli_encryption_token_default_fallback_123456');
+}
+if (!defined('PublicToken')) {
+    define('PublicToken', 'cli_public_token_default_fallback_123456');
+}
+if (!defined('DBprefix')) {
+    define('DBprefix', '');
+}
 
 require_once CORE . '/functions/core.php';
 require_once CORE . '/GemError.class.php';
