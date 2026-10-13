@@ -504,6 +504,13 @@ class GeoLocation {
                 @unlink($file);
             }
         }
+        $tmpFiles = @glob($dir . '/ratelimit_state.tmp.*');
+        if (is_array($tmpFiles)) {
+            foreach ($tmpFiles as $tf) {
+                @unlink($tf);
+            }
+        }
+        @unlink($dir . '/ratelimit.lock');
     }
 
     /**
@@ -585,8 +592,15 @@ class GeoLocation {
     }
 
     /**
-     * Update or read shared cross-process rate-limit & quota state atomically using flock(LOCK_EX).
-     * Returns null if file is inaccessible or locking fails, ensuring fail-closed protection
+     * Update or read shared cross-process rate-limit & quota state transactionally.
+     * Uses a dedicated lock file (ratelimit.lock) with flock(LOCK_EX) and writes via
+     * a temporary file + atomic rename to ensure durability against abrupt process crashes.
+     *
+     * Explicitly distinguishes legitimate initial creation (file does not exist) from
+     * corrupted or abnormally empty states (0 bytes / invalid JSON), enforcing fail-closed
+     * protection so counters are NEVER silently reset to zero upon disk disruption.
+     *
+     * Returns null if file is inaccessible, locked, or corrupted, ensuring fail-closed protection
      * against uncounted or unconstrained external API calls.
      */
     protected static function mutateSharedQuotaState(callable $mutator): ?array {
@@ -603,25 +617,38 @@ class GeoLocation {
         ];
 
         $dir = self::getCacheDirectory();
-        $file = $dir . '/ratelimit_state.json';
-        $fp = @fopen($file, 'c+b');
-        if (!$fp) {
-            // Fail-closed: prevent uncounted external calls when state file is inaccessible
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             return null;
         }
 
+        $lockFile = $dir . '/ratelimit.lock';
+        $lockFp = @fopen($lockFile, 'c+b');
+        if (!$lockFp) {
+            // Fail-closed: cannot obtain lock handle
+            return null;
+        }
+
+        if (!@flock($lockFp, LOCK_EX)) {
+            @fclose($lockFp);
+            return null;
+        }
+
+        $stateFile = $dir . '/ratelimit_state.json';
         $state = null;
-        if (@flock($fp, LOCK_EX)) {
-            rewind($fp);
-            $raw = stream_get_contents($fp);
+
+        try {
             $currentState = $defaultState;
-            if (is_string($raw) && $raw !== '') {
+            if (file_exists($stateFile)) {
+                $raw = @file_get_contents($stateFile);
+                if ($raw === false || $raw === '' || filesize($stateFile) === 0) {
+                    // State file exists but is empty (e.g. abrupt power cut or truncated disk error).
+                    // MUST NOT silently reset counters to defaultState!
+                    // Fail-closed to protect against uncounted API calls.
+                    return null;
+                }
                 $decoded = json_decode($raw, true);
                 if (!is_array($decoded)) {
-                    // Corrupted state file: MUST NOT silently reset counters to defaultState!
-                    // Fail-closed to prevent uncounted API calls
-                    @flock($fp, LOCK_UN);
-                    @fclose($fp);
+                    // Corrupted state file (invalid JSON or partial write): fail-closed!
                     return null;
                 }
                 $currentState = array_merge($defaultState, $decoded);
@@ -630,41 +657,59 @@ class GeoLocation {
             $state = $mutator($currentState);
             $encoded = json_encode($state, JSON_UNESCAPED_SLASHES);
             if ($encoded === false) {
-                @flock($fp, LOCK_UN);
-                @fclose($fp);
                 return null;
             }
 
-            if (self::$testQuotaStorageFault === 'ftruncate_fail' || @ftruncate($fp, 0) === false) {
-                @flock($fp, LOCK_UN);
-                @fclose($fp);
+            // Fault injection support for automated tests
+            if (self::$testQuotaStorageFault === 'ftruncate_fail') {
                 return null;
             }
-            @rewind($fp);
 
-            $bytesWritten = @fwrite($fp, $encoded);
+            // Transactional atomic write: write to temp file then rename
+            $tmpFile = $dir . '/ratelimit_state.tmp.' . bin2hex(random_bytes(8));
+            $tmpFp = @fopen($tmpFile, 'wb');
+            if (!$tmpFp) {
+                return null;
+            }
+
             if (self::$testQuotaStorageFault === 'partial_write') {
-                $bytesWritten = strlen($encoded) - 10;
+                // Simulate real partial disk write: write truncated bytes to disk
+                $partial = substr($encoded, 0, min(15, strlen($encoded)));
+                @fwrite($tmpFp, $partial);
+                @fflush($tmpFp);
+                @fclose($tmpFp);
+                // Also write partial bytes to $stateFile to simulate on-disk corruption
+                @file_put_contents($stateFile, $partial);
+                @unlink($tmpFile);
+                return null;
             }
+
+            $bytesWritten = @fwrite($tmpFp, $encoded);
             if ($bytesWritten === false || $bytesWritten !== strlen($encoded)) {
-                // Incomplete or failed write! Fail-closed!
-                @flock($fp, LOCK_UN);
-                @fclose($fp);
+                @fclose($tmpFp);
+                @unlink($tmpFile);
                 return null;
             }
 
-            if (self::$testQuotaStorageFault === 'fflush_fail' || @fflush($fp) === false) {
-                @flock($fp, LOCK_UN);
-                @fclose($fp);
+            if (self::$testQuotaStorageFault === 'fflush_fail' || @fflush($tmpFp) === false) {
+                @fclose($tmpFp);
+                @unlink($tmpFile);
                 return null;
             }
 
-            @flock($fp, LOCK_UN);
+            @fclose($tmpFp);
+
+            // Atomic rename guarantees POSIX durability: state file is never left half-written or empty
+            if (!@rename($tmpFile, $stateFile)) {
+                @unlink($tmpFile);
+                return null;
+            }
+
+            return $state;
+        } finally {
+            @flock($lockFp, LOCK_UN);
+            @fclose($lockFp);
         }
-        @fclose($fp);
-
-        // If flock or writing failed, $state remains null (fail-closed)
-        return $state;
     }
 
     /**

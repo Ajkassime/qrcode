@@ -49,10 +49,16 @@ trait Links {
 
 		$current = idn_to_utf8($current);
 
+		$driver = '';
+		try {
+			$driver = \Core\DB::get_db() ? \Core\DB::get_db()->getAttribute(\PDO::ATTR_DRIVER_NAME) : '';
+		} catch (\Throwable $e) {}
+		$binaryOp = ($driver === 'sqlite') ? '' : 'BINARY ';
+
 		if("http://".$current == config("url") || "https://".$current == config("url")){
-			$url = DB::url()->whereRaw("(alias = BINARY :id OR custom = BINARY :id) AND ((domain = :domain1 OR domain = :domain2) OR domain IS NULL OR domain = '')", [':id' => $alias, ':domain1' => 'http://'.$current, ':domain2' => 'https://'.$current])->first();
+			$url = DB::url()->whereRaw("(alias = {$binaryOp}:id OR custom = {$binaryOp}:id) AND ((domain = :domain1 OR domain = :domain2) OR domain IS NULL OR domain = '')", [':id' => $alias, ':domain1' => 'http://'.$current, ':domain2' => 'https://'.$current])->first();
 		}else{
-			$url = DB::url()->whereRaw("(alias = BINARY :id OR custom = BINARY :id) AND (domain = :domain1 OR domain = :domain2)", [':id' => $alias, ':domain1' => 'http://'.$current, ':domain2' => 'https://'.$current])->first();
+			$url = DB::url()->whereRaw("(alias = {$binaryOp}:id OR custom = {$binaryOp}:id) AND (domain = :domain1 OR domain = :domain2)", [':id' => $alias, ':domain1' => 'http://'.$current, ':domain2' => 'https://'.$current])->first();
 		}
         return $url;
     }

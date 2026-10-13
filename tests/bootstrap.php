@@ -3,9 +3,15 @@
  * Test Suite Bootstrap
  */
 
-define("_VERSION", "1.1");
-define("_INAPP", true);
-define("_STATE", "TEST");
+if (!defined('_VERSION')) {
+    define('_VERSION', '1.1');
+}
+if (!defined('_INAPP')) {
+    define('_INAPP', true);
+}
+if (!defined('_STATE')) {
+    define('_STATE', 'TEST');
+}
 
 define("ROOT", dirname(__DIR__));
 define("APP", ROOT . '/app');
@@ -23,6 +29,9 @@ define("LOCALE", STORAGE . "/languages");
 define("PLUGIN", STORAGE . "/plugins");
 if (!defined('AuthToken')) {
     define('AuthToken', 'test_auth_token_for_tests_123456');
+}
+if (!defined('DBprefix')) {
+    define('DBprefix', '');
 }
 if (!defined('EncryptionToken')) {
     define('EncryptionToken', 'test_encryption_token_for_tests_123456');

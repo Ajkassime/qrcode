@@ -16,6 +16,7 @@ class GeoLocationTest {
         self::testGeographicHierarchyAndGlobalQualityMetrics($results);
         self::testGeoConsentEndpointPrivacyAndExternalFailureResilience($results);
         self::testCliMigrationAndRepairScriptsOnRealDatabase($results);
+        self::testIsolatedHttpServerConsentAndWhatsAppLifecycle($results);
     }
 
     private static function assert($condition, $message, &$results) {
@@ -638,7 +639,58 @@ class GeoLocationTest {
             $results
         );
 
-        // 8. Test corrupted JSON state file: MUST NOT silently reset counters to defaultState (fail-closed protection)
+        // 8a. Legitimate initial creation: state file does not exist yet
+        $initDir = sys_get_temp_dir() . '/geo_init_' . uniqid();
+        mkdir($initDir, 0700, true);
+        \Helpers\GeoLocation::setCacheDirectory($initDir);
+        \Helpers\GeoLocation::resetWorkerMemory();
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'  => true,
+            'provider' => 'opencage',
+            'api_key'  => 'oc_init_test_key',
+        ]);
+        $initCalled = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$initCalled) {
+            $initCalled = true;
+            return json_encode(['results' => [['components' => ['country' => 'Madagascar', 'state' => 'Analamanga', 'city' => 'Antananarivo']]]]);
+        });
+        $resInit = \Helpers\GeoLocation::resolveCoordinates(-18.913, 47.536, 10.0);
+        $initFileExists = file_exists($initDir . '/ratelimit_state.json');
+        $initStats = \Helpers\GeoLocation::getReverseGeocoderStats();
+        self::assert(
+            $initCalled && $initFileExists && ($initStats['requests_total'] ?? 0) === 1,
+            "Legitimate initial quota state creation atomically creates ratelimit_state.json and records first request",
+            $results
+        );
+        @unlink($initDir . '/ratelimit_state.json');
+        @unlink($initDir . '/ratelimit.lock');
+        @rmdir($initDir);
+
+        // 8b. Existing empty state file (0 bytes from power failure / interruption): MUST NOT silently reset to zero
+        $emptyDir = sys_get_temp_dir() . '/geo_empty_' . uniqid();
+        mkdir($emptyDir, 0700, true);
+        file_put_contents($emptyDir . '/ratelimit_state.json', '');
+        \Helpers\GeoLocation::setCacheDirectory($emptyDir);
+        \Helpers\GeoLocation::resetWorkerMemory();
+        $externalCalledOnEmpty = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$externalCalledOnEmpty) {
+            $externalCalledOnEmpty = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resEmpty = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        \Helpers\GeoLocation::setCacheDirectory(null);
+        @unlink($emptyDir . '/ratelimit_state.json');
+        @unlink($emptyDir . '/ratelimit.lock');
+        @rmdir($emptyDir);
+
+        self::assert(
+            $resEmpty['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$externalCalledOnEmpty,
+            "Existing empty quota state file (0 bytes) triggers fail-closed protection without silently resetting counters to zero",
+            $results
+        );
+
+        // 8c. Test corrupted JSON state file: MUST NOT silently reset counters to defaultState (fail-closed protection)
         $corruptDir = sys_get_temp_dir() . '/geo_corrupt_' . uniqid();
         mkdir($corruptDir, 0700, true);
         file_put_contents($corruptDir . '/ratelimit_state.json', '{"minute_window": INVALID-SYNTAX-NOT-JSON...');
@@ -651,6 +703,7 @@ class GeoLocationTest {
         $resCorrupt = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
         \Helpers\GeoLocation::setCacheDirectory(null);
         @unlink($corruptDir . '/ratelimit_state.json');
+        @unlink($corruptDir . '/ratelimit.lock');
         @rmdir($corruptDir);
 
         self::assert(
@@ -660,7 +713,7 @@ class GeoLocationTest {
             $results
         );
 
-        // 9. Test partial write failure during quota mutation: fail-closed protection
+        // 9. Test partial write failure during quota mutation: real truncated bytes written to disk & fail-closed protection
         $faultDir = sys_get_temp_dir() . '/geo_fault_' . uniqid();
         mkdir($faultDir, 0700, true);
         \Helpers\GeoLocation::setCacheDirectory($faultDir);
@@ -678,10 +731,25 @@ class GeoLocationTest {
         });
         $resPartial = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
         \Helpers\GeoLocation::setTestQuotaStorageFault(null);
+        $diskContent = file_exists($faultDir . '/ratelimit_state.json') ? file_get_contents($faultDir . '/ratelimit_state.json') : '';
+        $isTruncatedOnDisk = (strlen($diskContent) > 0 && strlen($diskContent) <= 15);
+
+        // Verify that subsequent resolution against this real truncated file on disk also fails closed
+        \Helpers\GeoLocation::resetWorkerMemory();
+        $subsequentCalled = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$subsequentCalled) {
+            $subsequentCalled = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resSubsequent = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+
         self::assert(
             $resPartial['missing_reason'] === 'quota_storage_inaccessible' &&
-            !$externalCalledOnPartial,
-            "Partial disk write failure in mutateSharedQuotaState triggers fail-closed rejection",
+            !$externalCalledOnPartial &&
+            $isTruncatedOnDisk &&
+            $resSubsequent['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$subsequentCalled,
+            "Partial disk write writes real truncated bytes to disk, triggers fail-closed rejection, and persists protection against subsequent calls",
             $results
         );
 
@@ -697,6 +765,7 @@ class GeoLocationTest {
         \Helpers\GeoLocation::setTestQuotaStorageFault(null);
         \Helpers\GeoLocation::setCacheDirectory(null);
         @unlink($faultDir . '/ratelimit_state.json');
+        @unlink($faultDir . '/ratelimit.lock');
         @rmdir($faultDir);
         self::assert(
             $resTruncate['missing_reason'] === 'quota_storage_inaccessible' &&
@@ -705,25 +774,38 @@ class GeoLocationTest {
             $results
         );
 
-        // 11. Test isolation of test-worldwide-geocoder.php: MUST NEVER delete or alter production cache/quotas
+        // 11. Test isolation and CLI exit codes of test-worldwide-geocoder.php
         $mockProdDir = sys_get_temp_dir() . '/geo_prod_mock_' . uniqid();
         mkdir($mockProdDir, 0700, true);
         $prodStatePayload = json_encode(['requests_total' => 888, 'minute_count' => 15, 'day_count' => 500]);
         file_put_contents($mockProdDir . '/ratelimit_state.json', $prodStatePayload);
         \Helpers\GeoLocation::setCacheDirectory($mockProdDir);
 
-        // Execute test-worldwide-geocoder.php CLI
-        $cmdOutput = shell_exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' 2>&1');
+        // Execute test-worldwide-geocoder.php CLI (must exit with code 0 on success)
+        $cmdOutput = [];
+        $cmdExitCode = -1;
+        exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' 2>&1', $cmdOutput, $cmdExitCode);
         \Helpers\GeoLocation::setCacheDirectory(null);
 
         $prodFileStillExists = file_exists($mockProdDir . '/ratelimit_state.json');
         $prodFileContentAfterTest = $prodFileStillExists ? file_get_contents($mockProdDir . '/ratelimit_state.json') : '';
         @unlink($mockProdDir . '/ratelimit_state.json');
+        @unlink($mockProdDir . '/ratelimit.lock');
         @rmdir($mockProdDir);
 
         self::assert(
-            $prodFileStillExists && $prodFileContentAfterTest === $prodStatePayload,
-            "test-worldwide-geocoder.php operates in isolated temp directory and never deletes or alters production quotas",
+            $cmdExitCode === 0 && $prodFileStillExists && $prodFileContentAfterTest === $prodStatePayload,
+            "test-worldwide-geocoder.php exits with status code 0, operates in isolated temp directory and never deletes or alters production quotas",
+            $results
+        );
+
+        // Execute test-worldwide-geocoder.php with missing required API key (must exit with non-zero code)
+        $failOutput = [];
+        $failExitCode = 0;
+        exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' --live 2>&1', $failOutput, $failExitCode);
+        self::assert(
+            $failExitCode === 1,
+            "test-worldwide-geocoder.php exits with non-zero exit code (1) when required live configuration is missing",
             $results
         );
 
@@ -1180,5 +1262,286 @@ class GeoLocationTest {
         $verifyPdo = null;
 
         @unlink($tmpSqlite);
+    }
+
+    public static function testIsolatedHttpServerConsentAndWhatsAppLifecycle(&$results) {
+        echo "Running GeoLocationTest::testIsolatedHttpServerConsentAndWhatsAppLifecycle...\n";
+
+        // 1. Pick an available port and create isolated paths
+        $sock = stream_socket_server("tcp://127.0.0.1:0", $errno, $errstr);
+        $name = stream_socket_get_name($sock, false);
+        $port = parse_url("tcp://" . $name, PHP_URL_PORT);
+        fclose($sock);
+
+        $tmpSqlite = tempnam(sys_get_temp_dir(), 'test_sqlite_') . '.sqlite';
+        $tmpCacheDir = sys_get_temp_dir() . '/test_cache_http_' . uniqid();
+        mkdir($tmpCacheDir, 0700, true);
+
+        // 2. Setup isolated ephemeral SQLite database
+        $pdo = new \PDO('sqlite:' . $tmpSqlite);
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `url` (
+          `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+          `userid` INTEGER DEFAULT 0,
+          `alias` TEXT,
+          `custom` TEXT,
+          `url` TEXT,
+          `location` TEXT DEFAULT NULL,
+          `devices` TEXT DEFAULT NULL,
+          `options` TEXT DEFAULT NULL,
+          `domain` TEXT DEFAULT NULL,
+          `description` TEXT DEFAULT NULL,
+          `date` TEXT DEFAULT NULL,
+          `pass` TEXT DEFAULT NULL,
+          `click` INTEGER DEFAULT 0,
+          `uniqueclick` INTEGER DEFAULT 0,
+          `meta_title` TEXT DEFAULT NULL,
+          `meta_description` TEXT DEFAULT NULL,
+          `meta_image` TEXT DEFAULT NULL,
+          `bundle` INTEGER DEFAULT NULL,
+          `public` INTEGER DEFAULT 0,
+          `archived` INTEGER DEFAULT 0,
+          `type` TEXT DEFAULT NULL,
+          `pixels` TEXT DEFAULT NULL,
+          `expiry` TEXT DEFAULT NULL,
+          `parameters` TEXT DEFAULT NULL,
+          `status` INTEGER DEFAULT 1,
+          `qrid` INTEGER DEFAULT NULL,
+          `profileid` INTEGER DEFAULT NULL
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `stats` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `short` TEXT,
+            `urlid` INTEGER,
+            `urluserid` INTEGER DEFAULT 0,
+            `date` TEXT,
+            `ip` TEXT,
+            `country` TEXT,
+            `region` TEXT,
+            `city` TEXT,
+            `geo_source` TEXT,
+            `accuracy_radius` INTEGER,
+            `browser` TEXT DEFAULT '',
+            `os` TEXT DEFAULT '',
+            `device` TEXT DEFAULT '',
+            `domain` TEXT DEFAULT '',
+            `referer` TEXT DEFAULT '',
+            `language` TEXT DEFAULT ''
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `reports` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `bannedlink` TEXT DEFAULT ''
+        )");
+
+        $waTarget = 'https://wa.me/261340000000?text=' . urlencode('Bonjour, commande QR #102');
+        $stmt = $pdo->prepare("INSERT INTO `url` (`id`, `alias`, `url`, `options`, `status`) VALUES (1, 'wa-qr-http', :url, :opts, 1)");
+        $stmt->execute([':url' => $waTarget, ':opts' => json_encode(['geoconsent' => true])]);
+        $pdo = null;
+
+        // 3. Generate router script for PHP built-in web server
+        $routerFile = tempnam(sys_get_temp_dir(), 'router_') . '.php';
+        $bootstrapPath = var_export(ROOT . '/tests/bootstrap.php', true);
+        $routerCode = <<<"ROUTER"
+<?php
+define('_STATE', 'TEST');
+require_once {$bootstrapPath};
+
+\$sqliteDb = getenv('CODEX_TEST_SQLITE_PATH');
+\Core\DB::configure('sqlite:' . \$sqliteDb);
+\Core\DB::configure('return_result_sets', true);
+
+\$cacheDir = getenv('CODEX_TEST_CACHE_PATH');
+\Helpers\GeoLocation::setCacheDirectory(\$cacheDir);
+
+\Helpers\GeoLocation::setReverseGeocoderConfig([
+    'enabled'  => true,
+    'provider' => 'opencage',
+    'api_key'  => 'http_test_key',
+]);
+\Helpers\GeoLocation::setMockReverseGeocoder(function(\$lat, \$lon) {
+    if (abs(\$lat - (-21.223)) < 0.1 && abs(\$lon - 48.341) < 0.1) {
+        return [
+            'country'      => 'Madagascar',
+            'country_code' => 'MG',
+            'region'       => 'Vatovavy',
+            'region_code'  => 'MG-VAT',
+            'city'         => 'Mananjary',
+            '_provider'    => 'opencage',
+        ];
+    }
+    return null;
+});
+
+\Helpers\GeoLocation::setMockReader(new class {
+    public function city(\$ip) {
+        return new class {
+            public \$continent;
+            public \$country;
+            public \$subdivisions;
+            public \$city;
+            public \$location;
+            public function __construct() {
+                \$this->continent = (object)['code' => 'AF', 'names' => ['en' => 'Africa']];
+                \$this->country = (object)['isoCode' => 'MG', 'names' => ['en' => 'Madagascar']];
+                \$this->subdivisions = [];
+                \$this->city = (object)['names' => []];
+                \$this->location = (object)['latitude' => null, 'longitude' => null, 'accuracyRadius' => null];
+            }
+        };
+    }
+});
+
+\Gem::\$Config->url = 'http://' . (\$_SERVER['HTTP_HOST'] ?? '127.0.0.1');
+\Gem::\$Config->security = 'test-secret-key-32-chars-long-123456';
+\Gem::\$Config->tracking = '1';
+\Gem::\$Config->cookieconsent = (object)['enabled' => false];
+\Gem::\$Config->theme = 'default';
+\Core\View::set('path', STORAGE . '/themes/default');
+
+register_shutdown_function(function() {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+});
+
+\$rClass = new \ReflectionClass('\Gem');
+\$dispProp = \$rClass->getProperty('dispatcher');
+\$dispProp->setAccessible(true);
+\$dispProp->setValue(null, \FastRoute\simpleDispatcher(function(\FastRoute\RouteCollector \$r) {
+    foreach (\Gem::Controllers() as \$name => \$data) {
+        \$handler = ['controller' => \$data["handler"], 'name' => \$data["name"]];
+        if (isset(\$data["middleware"]) && !is_callable(\$handler)) {
+            \$handler['middleware'] = \$data["middleware"];
+        }
+        try {
+            \$r->addRoute(\$data["method"], \$data["path"], \$handler);
+        } catch (\Exception \$e) {
+            continue;
+        }
+    }
+}));
+
+try {
+    \Gem::Dispatch();
+} catch (\Throwable \$e) {
+    http_response_code(500);
+    header('Content-Type: text/plain');
+    echo "EXCEPTION: " . \$e->getMessage() . " in " . \$e->getFile() . ":" . \$e->getLine();
+}
+ROUTER;
+        file_put_contents($routerFile, $routerCode);
+
+        // 4. Start isolated ephemeral php -S server
+        $cmd = escapeshellarg(PHP_BINARY) . " -S 127.0.0.1:{$port} " . escapeshellarg($routerFile);
+        $env = [
+            'CODEX_TEST_SQLITE_PATH' => $tmpSqlite,
+            'CODEX_TEST_CACHE_PATH'  => $tmpCacheDir,
+            'PATH'                   => getenv('PATH'),
+        ];
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $process = proc_open($cmd, $descriptors, $pipes, null, $env);
+        usleep(400000); // 400ms
+
+        $cookieJar = tempnam(sys_get_temp_dir(), 'cookie_');
+        $userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+
+        try {
+            // 5. HTTP Request 1: Initial scan of QR code (GET /wa-qr-http)
+            $ch = curl_init("http://127.0.0.1:{$port}/wa-qr-http");
+            curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HEADER, true);
+            curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieJar);
+            curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieJar);
+            $body1 = curl_exec($ch);
+            $httpCode1 = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $hasConsentModal = (strpos($body1, 'Localisation') !== false);
+            $hasSkipBtn = (strpos($body1, 'Continuer sans partager') !== false);
+            $hasWaTarget = (strpos($body1, htmlspecialchars($waTarget, ENT_QUOTES, 'UTF-8')) !== false);
+
+            preg_match('/var consentNonce = "(.*?)";/', $body1, $mNonce);
+            $nonce = $mNonce[1] ?? '';
+            preg_match('/var csrfToken = (.*?);/', $body1, $mCsrf);
+            $csrf = !empty($mCsrf[1]) ? json_decode($mCsrf[1]) : '';
+            preg_match('/Set-Cookie:\s*(PHPSESSID=[^;]+)/i', $body1, $mCookie);
+            $sessionCookie = $mCookie[1] ?? '';
+
+            self::assert(
+                $httpCode1 === 200 && $hasConsentModal && $hasSkipBtn && $hasWaTarget && strlen($nonce) === 64 && !empty($csrf),
+                "HTTP Integration 1: Initial QR scan displays privacy consent modal with 64-char HMAC nonce, skip button, and WhatsApp target",
+                $results
+            );
+
+            // 6. HTTP Request 2: Consented POST (/geo/consent/wa-qr-http)
+            $payload = json_encode([
+                'latitude'      => -21.223,
+                'longitude'     => 48.341,
+                'accuracy'      => 15.0,
+                'consent_token' => $nonce,
+                '_token'        => $csrf,
+            ]);
+
+            $ch2 = curl_init("http://127.0.0.1:{$port}/geo/consent/wa-qr-http");
+            curl_setopt($ch2, CURLOPT_USERAGENT, $userAgent);
+            curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch2, CURLOPT_POST, true);
+            curl_setopt($ch2, CURLOPT_POSTFIELDS, $payload);
+            if ($sessionCookie !== '') {
+                curl_setopt($ch2, CURLOPT_COOKIE, $sessionCookie);
+            }
+            curl_setopt($ch2, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'X-CSRF-TOKEN: ' . $csrf,
+                'X-Requested-With: XMLHttpRequest',
+            ]);
+            $body2 = curl_exec($ch2);
+            $httpCode2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+            curl_close($ch2);
+
+            $json2 = json_decode($body2, true);
+            $redirectUrl = $json2['redirect'] ?? '';
+            $redirectValid = (strpos($redirectUrl, 'https://wa.me/261340000000') === 0);
+            $isSuccess = is_array($json2) && (!empty($json2['success']) || ($json2['error'] ?? null) === 0);
+
+            self::assert(
+                $httpCode2 === 200 && $isSuccess && $redirectValid,
+                "HTTP Integration 2: Consented geolocation POST updates stats and returns WhatsApp redirection URL",
+                $results
+            );
+
+            // 7. Verify SQLite database: verify stats record without raw GPS coordinates
+            $verifyPdo = new \PDO('sqlite:' . $tmpSqlite);
+            $stat = $verifyPdo->query("SELECT * FROM `stats` WHERE id = 1")->fetch(\PDO::FETCH_ASSOC);
+            $verifyPdo = null;
+
+            $correctAdmin = ($stat && $stat['country'] === 'Madagascar' && $stat['region'] === 'Vatovavy' && $stat['city'] === 'Mananjary' && $stat['geo_source'] === 'browser_consent');
+            $noRawGps = !isset($stat['latitude']) && !isset($stat['longitude']);
+
+            self::assert(
+                $correctAdmin && $noRawGps,
+                "HTTP Integration 3: Database recorded administrative location (Mananjary, Vatovavy, Madagascar) with strictly zero raw GPS coordinates",
+                $results
+            );
+        } finally {
+            proc_terminate($process);
+            @unlink($tmpSqlite);
+            @unlink($routerFile);
+            @unlink($cookieJar);
+            if (is_dir($tmpCacheDir)) {
+                $files = @glob($tmpCacheDir . '/*');
+                if (is_array($files)) {
+                    foreach ($files as $f) {
+                        @unlink($f);
+                    }
+                }
+                @rmdir($tmpCacheDir);
+            }
+        }
     }
 }

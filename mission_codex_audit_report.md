@@ -4,7 +4,7 @@
 - **Pull Request :** [#1](https://github.com/Ajkassime/qrcode/pull/1)
 - **Branche source :** `main`
 - **Branche de travail :** `codex/audit-cleanup-qrcode`
-- **Suite de tests :** **203 / 203 assertions réussies** (0 échec)
+- **Suite de tests :** **209 / 209 assertions réussies** (0 échec)
 
 ---
 
@@ -23,15 +23,19 @@
   - Support effectif dans [`app/helpers/GeoLocation.php`](app/helpers/GeoLocation.php) de `GEOSECONDARY_URL` pour les points de terminaison personnalisés ou internes.
   - Interpolation sécurisée des paramètres `{ip}` et `{key}` (`str_replace(['{ip}', '{key}'], [urlencode($ip), urlencode($key)], $urlTemplate)`).
 
-### Point 2 : Sécurité des quotas en mode Fail-Closed (`GeoLocation::mutateSharedQuotaState`)
-- **Problème résolu :** Si le fichier partagé d'état des quotas était inaccessible (permissions, disque plein), corrompu, ou si l'acquisition du verrou exclusif `flock(LOCK_EX)` échouait, l'ancien comportement risquait d'exécuter le mutateur en mémoire sans persistance ou de réinitialiser silencieusement les compteurs à 0, laissant passer des appels externes non comptabilisés.
-- **Correction et durcissement apportés :**
-  - [`GeoLocation::mutateSharedQuotaState()`](app/helpers/GeoLocation.php) adopte une politique stricte de **refus par défaut (Fail-Closed)** :
-    - En cas d'impossibilité d'ouvrir le fichier ou de poser le verrou `flock(LOCK_EX)`, la méthode retourne `null`.
-    - Si le contenu JSON de `ratelimit_state.json` est corrompu ou invalide, la méthode échoue immédiatement en retournant `null` au lieu de réinitialiser silencieusement les compteurs à zéro.
-    - Vérification stricte des retours système d'écriture : contrôle de `@ftruncate($fp, 0)`, contrôle de l'écriture complète (`$bytesWritten !== strlen($encoded)`, rejetant formellement toute écriture partielle), et contrôle de `@fflush($fp)`.
-  - La méthode de résolution intercepte ce cas et bloque immédiatement tout appel HTTP externe, retournant `missing_reason = 'quota_storage_inaccessible'` et `location_level = 'unknown'`.
-  - Des tests unitaires automatisés dédiés dans [`tests/GeoLocationTest.php`](tests/GeoLocationTest.php) prouvent formellement qu'aucun appel HTTP externe n'est émis en cas de stockage inaccessible, de fichier JSON corrompu, de troncature échouée ou d'écriture disque partielle.
+### Point 2 : Persistance transactionnelle et atomique des quotas résistante aux interruptions (`GeoLocation::mutateSharedQuotaState`)
+- **Problème résolu :** L'ancien enchaînement `ftruncate($fp, 0)` puis `fwrite()` présentait une fenêtre de vulnérabilité où une interruption brutale du processus PHP-FPM pouvait laisser un fichier `ratelimit_state.json` vide (0 octet). Ce fichier vide risquait alors d'être interprété comme un état initial lors de la lecture suivante, provoquant une remise à zéro involontaire des compteurs de quotas.
+- **Architecture transactionnelle et atomique mise en place :**
+  - **Fichier de verrouillage dédié :** [`GeoLocation::mutateSharedQuotaState()`](app/helpers/GeoLocation.php) utilise désormais un fichier de verrouillage séparé `ratelimit.lock` avec `flock(LOCK_EX)`. Cela permet de synchroniser tous les processus PHP-FPM concurrents sans être perturbé par le remplacement atomique du fichier de données.
+  - **Distinction explicite création vs corruption :**
+    - Si `ratelimit_state.json` **n'existe pas** (`!file_exists`), il s'agit d'une création initiale légitime : l'état est initialisé avec les valeurs par défaut.
+    - Si le fichier **existe déjà mais est vide** (`filesize === 0` ou contenu vide), il s'agit d'une anomalie/interruption : la méthode applique immédiatement le mode **Fail-Closed** (`return null`) sans jamais remettre les compteurs à zéro.
+    - Si le fichier **contient du JSON invalide ou corrompu**, la méthode applique également le mode **Fail-Closed** (`return null`).
+  - **Écriture atomique par fichier temporaire et renommage POSIX :**
+    - Le nouvel état est d'abord écrit intégralement dans un fichier temporaire unique (`ratelimit_state.tmp.<random>`), avec vérification stricte du nombre d'octets écrits et appel explicite à `fflush()`.
+    - Le remplacement s'effectue ensuite via un appel atomique `rename()`. Ainsi, `ratelimit_state.json` n'est jamais tronqué sur place et ne traverse aucun état intermédiaire vide ou incomplet.
+  - **Preuve par tests réels avec octets tronqués sur disque :**
+    - Un test unitaire injecte de véritables octets JSON partiels sur le disque (`substr($json, 0, 15)`) et prouve que le système détecte la corruption, refuse tout appel externe non comptabilisé (`missing_reason = 'quota_storage_inaccessible'`), et maintient ce verrouillage protecteur sur les requêtes suivantes.
 
 ### Point 3 : Transparence de la confidentialité et conformité des données transmises
 - **Fichiers :** [`storage/themes/default/gates/consent.php`](storage/themes/default/gates/consent.php) et [`app/helpers/Gate.php`](app/helpers/Gate.php)
@@ -59,34 +63,31 @@
   - Les fichiers de configuration (`app/config/app.php`) utilisent systématiquement `\Helpers\GeoLocation::getEnv()`.
   - Un test unitaire dédié valide le bon fonctionnement de ce mécanisme.
 
-### Point 6 : Procédure de test, isolation du cache et cycle de vie de bout en bout
-- **Script dédié :** [`scripts/test-worldwide-geocoder.php`](scripts/test-worldwide-geocoder.php)
-- **Isolation stricte du cache de test :**
-  - Le script crée et utilise systématiquement un dossier temporaire isolé (`sys_get_temp_dir() . '/codex_geotest_...'`) **avant** tout appel à `clearCache()`.
-  - Il est ainsi formellement garanti que le script ne peut jamais supprimer ni modifier le cache de production, les quotas partagés actifs (`ratelimit_state.json`), ou les statistiques réelles.
-  - Un test unitaire dédié dans [`tests/GeoLocationTest.php`](tests/GeoLocationTest.php) vérifie cette isolation étanche.
-- **Vérification de bout en bout (E2E) :**
-  - Cycle complet validé : Scan QR / consultation du lien -> Page de consentement -> Génération du jeton HMAC-SHA256 (64 caractères) lié au scan -> Soumission des coordonnées -> Vérification de l'absence de coordonnées GPS brutes en base de données -> Redirection cible WhatsApp (`https://wa.me/...`).
-  - Validation du cas d'opt-out (« Continuer sans partager ») : redirection directe vers l'URL WhatsApp sans enregistrement GPS ni appel externe.
-- **Distinction méthodologique claire :**
-  1. **Mode hors-ligne / Références indépendantes (exécuté en CI) :**
-     - Exécution sur des jeux de données de référence vérifiés sans dépendance réseau externe.
-     - Validation de 5 continents (Genève, Tokyo, Sydney, New York, São Paulo, Mananjary, zone rurale de Vatovavy).
-     - Vérification de la gestion des erreurs réseau (panne simulée).
-     - Vérification du respect des quotas partagés (dépassement simulé).
-     - Vérification de la sécurité fail-closed (stockage inaccessible).
-     - Vérification de la préservation de la redirection WhatsApp.
-  2. **Mode réseau réel (`--live`) pour l'exploitant en production :**
+### Point 6 : Qualification rigoureuse des tests, intégration HTTP et cycle de vie
+- **Classification claire des tests pour l'audit et la documentation :**
+  1. **Tests unitaires et simulations contrôlées :**
+     - Couvrent les composants isolés : détection IP, protection anti-usurpation d'en-têtes de proxy, validation polygonale, hiérarchie administrative, calcul des métriques qualité, et résilience aux pannes.
+     - Le script [`scripts/test-worldwide-geocoder.php`](scripts/test-worldwide-geocoder.php) opère en mode de simulation contrôlée (jeux de coordonnées de référence hors-ligne) avec isolation stricte du cache temporaire (`codex_geotest_*`) garantissant l'intégrité absolue des quotas de production. Ses tests portent désormais la qualification explicite `SIMULATED_INTEGRATION_TEST`.
+     - Les codes de sortie du script CLI sont strictement vérifiés : `$code === 0` en cas de réussite, `$code !== 0` (ex. code 1) en cas de configuration manquante ou d'échec.
+  2. **Tests d'intégration HTTP isolés sur serveur web réel :**
+     - Méthode dédiée [`GeoLocationTest::testIsolatedHttpServerConsentAndWhatsAppLifecycle()`](tests/GeoLocationTest.php).
+     - Démarre un serveur web éphémère (`php -S 127.0.0.1:<port>`) avec base de données SQLite isolée et effectue de véritables requêtes HTTP avec cURL et User-Agent mobile (évitant les blocages de robots).
+     - Valide l'intégralité du cycle de vie HTTP réel :
+       - **Requête 1 (Scan QR) :** affichage de la page de consentement, présence du jeton cryptographique HMAC-SHA256 (64 caractères hexadécimaux lié au scan), présence du jeton CSRF et du lien d'opt-out (« Continuer sans partager ») pointant vers l'URL WhatsApp cible.
+       - **Requête 2 (Opt-out ou Soumission POST) :** envoi effectif de la requête POST au point de terminaison `/geo/consent/<alias>` avec cookies de session.
+       - **Résultat :** redirection HTTP 200/302 vers l'URL WhatsApp cible (`https://wa.me/261340000000...`), mise à jour des statistiques administratives (Mananjary, Vatovavy, Madagascar) et absence stricte de toute coordonnée GPS brute (latitude/longitude) dans la table SQLite.
+  3. **Essais en conditions réelles (`--live`) pour l'exploitant :**
+     - Nécessitent une clé d'API valide auprès d'un fournisseur pris en charge (ex. OpenCage).
      - Commande : `REVERSE_GEOCODER_API_KEY=votre_cle php scripts/test-worldwide-geocoder.php --live --provider=opencage`
-     - Envoie de véritables requêtes HTTPS aux serveurs du prestataire sélectionné et affiche la charge utile JSON reçue ainsi que le temps de réponse. Ne pas prétendre qu'un test réseau réel a été effectué tant qu'il n'a pas été lancé avec des identifiants valides.
+     - Envoie de véritables requêtes HTTPS aux serveurs du prestataire sélectionné et affiche la charge utile JSON reçue ainsi que le temps de réponse.
 
 ---
 
 ## 2. RÉSULTATS DES TESTS AUTOMATISÉS
 
 - **Script d'exécution :** `php tests/run_tests.php`
-- **Total des assertions exécutées :** **203**
-- **Assertions réussies :** **203**
+- **Total des assertions exécutées :** **209**
+- **Assertions réussies :** **209**
 - **Assertions échouées :** **0**
 - **Vérification syntaxique (`php -l`) :** 100 % des fichiers validés sans erreur.
 - **Environnements validés :** PHP 8.1, PHP 8.2, PHP 8.3 (Matrice GitHub Actions).
@@ -99,8 +100,9 @@
 | :--- | :--- | :--- |
 | **MaxMind GeoLite2-City** | Base chargée localement (`storage/app/GeoLite2-City.mmdb`) | Tâche cron de mise à jour avec `MAXMIND_LICENSE_KEY` |
 | **Géocodage inverse GPS** | 5 adaptateurs intégrés (OpenCage, BigDataCloud, Nominatim, Google, Mapbox) | Renseigner `REVERSE_GEOCODER_ENABLED=true` et `REVERSE_GEOCODER_API_KEY` dans `.env` ou `www.conf` |
-| **Sécurité des quotas** | Verrouillage atomique et politique fail-closed (écriture partielle, troncature, corruption JSON) | S'assurer que `storage/cache/geolocation/` est accessible en écriture par l'utilisateur PHP-FPM (`www-data`) |
-| **Protection des secrets** | `.gitignore` durci, masquage de clé, lecture d'environnement | Définir des permissions `chmod 600 .env` sur le serveur de production |
+| **Sécurité des quotas** | Verrouillage dédié `ratelimit.lock`, écriture atomique tempfile + rename, mode fail-closed sur fichier 0-octet et corruption | S'assurer que `storage/cache/geolocation/` est accessible en lecture/écriture par le pool PHP-FPM (`www-data`) |
+| **Cycle de vie HTTP** | Test d'intégration complet validant le flux QR -> Consentement -> Redirection WhatsApp | Aucun composant tiers nécessaire |
+| **Protection des secrets** | `.gitignore` durci, masquage de clé, lecture d'environnement sécurisée | Définir des permissions `chmod 600 .env` sur le serveur de production |
 | **Mandataires inverses** | Filtrage `TRUSTED_PROXY_IPS` et support Cloudflare | Configurer `TRUSTED_PROXY_IPS` si utilisation d'un reverse proxy, et `TRUST_CLOUDFLARE_PROXY=true` si derrière Cloudflare |
 | **Migration SQL `stats`** | Scripts CLI vérifiés (`scripts/migrate-geo-stats.php`) | Exécution manuelle par l'administrateur : `php scripts/migrate-geo-stats.php --apply --confirm` |
 

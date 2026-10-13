@@ -8,14 +8,14 @@
  *   3. Failure case handling (HTTP 500 / timeout / offline)
  *   4. Shared cross-process quota exhaustion (per-minute & daily quotas)
  *   5. Quota storage inaccessibility (fail-closed security protection)
- *   6. Full End-to-End QR, scan, consent, stats & WhatsApp redirection verification
+ *   6. Simulated integration lifecycle verification (QR, scan consent gate, stats & WhatsApp redirection)
  *
  * Usage:
  *   php scripts/test-worldwide-geocoder.php
  *   php scripts/test-worldwide-geocoder.php --provider=opencage --live
  *   php scripts/test-worldwide-geocoder.php --simulate-failure
  *   php scripts/test-worldwide-geocoder.php --simulate-quota
- *   php scripts/test-worldwide-geocoder.php --whatsapp-e2e
+ *   php scripts/test-worldwide-geocoder.php --whatsapp-check
  *   php scripts/test-worldwide-geocoder.php --json
  */
 
@@ -397,7 +397,7 @@ if ($whatsappCheck || !$liveMode) {
 
     $e2ePassed = $hasNonce && $hasWaTarget && $hasSkipBtn && $noRawCoordinatesInStats && $correctAdministrativeLocation && $redirectValid;
 
-    $recordResult("whatsapp_e2e_lifecycle", "End-to-End QR -> Consent -> Stats -> WhatsApp Redirection", $e2ePassed, [
+    $recordResult("whatsapp_lifecycle_simulation", "Simulated Integration: QR -> Consent -> Stats -> WhatsApp Redirection", $e2ePassed, [
         'step_1_hmac_nonce_generated' => $hasNonce ? 'YES (64 hex chars)' : 'NO',
         'step_2_skip_button_present'  => $hasSkipBtn ? 'YES' : 'NO',
         'step_3_raw_coords_excluded'  => $noRawCoordinatesInStats ? 'YES (lat/lon never saved)' : 'NO',
