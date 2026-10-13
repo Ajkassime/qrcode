@@ -67,6 +67,12 @@ class GeoLocation {
     protected static $testTimestamp = null;
 
     /**
+     * Test fault injection for quota storage testing ('ftruncate_fail', 'partial_write', 'fflush_fail')
+     * @var string|null
+     */
+    protected static $testQuotaStorageFault = null;
+
+    /**
      * Mock reader for testing purposes
      * @var mixed
      */
@@ -466,6 +472,14 @@ class GeoLocation {
         self::$customBoundariesPath = null;
         self::$statsColumnsCache = null;
         self::$envLoaded = false;
+        self::$testQuotaStorageFault = null;
+    }
+
+    /**
+     * Set test fault injection for quota storage testing ('ftruncate_fail', 'partial_write', 'fflush_fail')
+     */
+    public static function setTestQuotaStorageFault(?string $fault): void {
+        self::$testQuotaStorageFault = $fault;
     }
 
     /**
@@ -603,22 +617,53 @@ class GeoLocation {
             $currentState = $defaultState;
             if (is_string($raw) && $raw !== '') {
                 $decoded = json_decode($raw, true);
-                if (is_array($decoded)) {
-                    $currentState = array_merge($defaultState, $decoded);
+                if (!is_array($decoded)) {
+                    // Corrupted state file: MUST NOT silently reset counters to defaultState!
+                    // Fail-closed to prevent uncounted API calls
+                    @flock($fp, LOCK_UN);
+                    @fclose($fp);
+                    return null;
                 }
+                $currentState = array_merge($defaultState, $decoded);
             }
 
             $state = $mutator($currentState);
+            $encoded = json_encode($state, JSON_UNESCAPED_SLASHES);
+            if ($encoded === false) {
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+                return null;
+            }
 
-            ftruncate($fp, 0);
-            rewind($fp);
-            fwrite($fp, json_encode($state, JSON_UNESCAPED_SLASHES));
-            fflush($fp);
+            if (self::$testQuotaStorageFault === 'ftruncate_fail' || @ftruncate($fp, 0) === false) {
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+                return null;
+            }
+            @rewind($fp);
+
+            $bytesWritten = @fwrite($fp, $encoded);
+            if (self::$testQuotaStorageFault === 'partial_write') {
+                $bytesWritten = strlen($encoded) - 10;
+            }
+            if ($bytesWritten === false || $bytesWritten !== strlen($encoded)) {
+                // Incomplete or failed write! Fail-closed!
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+                return null;
+            }
+
+            if (self::$testQuotaStorageFault === 'fflush_fail' || @fflush($fp) === false) {
+                @flock($fp, LOCK_UN);
+                @fclose($fp);
+                return null;
+            }
+
             @flock($fp, LOCK_UN);
         }
         @fclose($fp);
 
-        // If flock failed, $state remains null (fail-closed)
+        // If flock or writing failed, $state remains null (fail-closed)
         return $state;
     }
 

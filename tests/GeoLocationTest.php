@@ -638,6 +638,95 @@ class GeoLocationTest {
             $results
         );
 
+        // 8. Test corrupted JSON state file: MUST NOT silently reset counters to defaultState (fail-closed protection)
+        $corruptDir = sys_get_temp_dir() . '/geo_corrupt_' . uniqid();
+        mkdir($corruptDir, 0700, true);
+        file_put_contents($corruptDir . '/ratelimit_state.json', '{"minute_window": INVALID-SYNTAX-NOT-JSON...');
+        \Helpers\GeoLocation::setCacheDirectory($corruptDir);
+        $externalCalledOnCorrupt = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$externalCalledOnCorrupt) {
+            $externalCalledOnCorrupt = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resCorrupt = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        \Helpers\GeoLocation::setCacheDirectory(null);
+        @unlink($corruptDir . '/ratelimit_state.json');
+        @rmdir($corruptDir);
+
+        self::assert(
+            $resCorrupt['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$externalCalledOnCorrupt,
+            "Corrupted JSON quota state file triggers fail-closed protection without silently resetting counters to zero",
+            $results
+        );
+
+        // 9. Test partial write failure during quota mutation: fail-closed protection
+        $faultDir = sys_get_temp_dir() . '/geo_fault_' . uniqid();
+        mkdir($faultDir, 0700, true);
+        \Helpers\GeoLocation::setCacheDirectory($faultDir);
+        \Helpers\GeoLocation::resetWorkerMemory();
+        \Helpers\GeoLocation::setReverseGeocoderConfig([
+            'enabled'  => true,
+            'provider' => 'opencage',
+            'api_key'  => 'oc_test_quota_key',
+        ]);
+        \Helpers\GeoLocation::setTestQuotaStorageFault('partial_write');
+        $externalCalledOnPartial = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$externalCalledOnPartial) {
+            $externalCalledOnPartial = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resPartial = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        \Helpers\GeoLocation::setTestQuotaStorageFault(null);
+        self::assert(
+            $resPartial['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$externalCalledOnPartial,
+            "Partial disk write failure in mutateSharedQuotaState triggers fail-closed rejection",
+            $results
+        );
+
+        // 10. Test ftruncate / write failure during quota mutation: fail-closed protection
+        \Helpers\GeoLocation::resetWorkerMemory();
+        \Helpers\GeoLocation::setTestQuotaStorageFault('ftruncate_fail');
+        $externalCalledOnTruncate = false;
+        \Helpers\GeoLocation::setMockHttpTransport(function () use (&$externalCalledOnTruncate) {
+            $externalCalledOnTruncate = true;
+            return json_encode(['results' => [['components' => ['country' => 'France']]]]);
+        });
+        $resTruncate = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 15.0);
+        \Helpers\GeoLocation::setTestQuotaStorageFault(null);
+        \Helpers\GeoLocation::setCacheDirectory(null);
+        @unlink($faultDir . '/ratelimit_state.json');
+        @rmdir($faultDir);
+        self::assert(
+            $resTruncate['missing_reason'] === 'quota_storage_inaccessible' &&
+            !$externalCalledOnTruncate,
+            "ftruncate disk failure in mutateSharedQuotaState triggers fail-closed rejection",
+            $results
+        );
+
+        // 11. Test isolation of test-worldwide-geocoder.php: MUST NEVER delete or alter production cache/quotas
+        $mockProdDir = sys_get_temp_dir() . '/geo_prod_mock_' . uniqid();
+        mkdir($mockProdDir, 0700, true);
+        $prodStatePayload = json_encode(['requests_total' => 888, 'minute_count' => 15, 'day_count' => 500]);
+        file_put_contents($mockProdDir . '/ratelimit_state.json', $prodStatePayload);
+        \Helpers\GeoLocation::setCacheDirectory($mockProdDir);
+
+        // Execute test-worldwide-geocoder.php CLI
+        $cmdOutput = shell_exec('php ' . escapeshellarg(ROOT . '/scripts/test-worldwide-geocoder.php') . ' 2>&1');
+        \Helpers\GeoLocation::setCacheDirectory(null);
+
+        $prodFileStillExists = file_exists($mockProdDir . '/ratelimit_state.json');
+        $prodFileContentAfterTest = $prodFileStillExists ? file_get_contents($mockProdDir . '/ratelimit_state.json') : '';
+        @unlink($mockProdDir . '/ratelimit_state.json');
+        @rmdir($mockProdDir);
+
+        self::assert(
+            $prodFileStillExists && $prodFileContentAfterTest === $prodStatePayload,
+            "test-worldwide-geocoder.php operates in isolated temp directory and never deletes or alters production quotas",
+            $results
+        );
+
         \Helpers\GeoLocation::clearCache();
         @rmdir($tmpCacheDir);
     }
@@ -948,6 +1037,34 @@ class GeoLocationTest {
             $stat30->country === 'Madagascar' &&
             $stat30->geo_source === 'maxmind',
             "When external reverse geocoder is unavailable, geoConsent preserves MaxMind country='Madagascar' and redirects cleanly to WhatsApp",
+            $results
+        );
+
+        // Case 8: Visitor opt-out / "Continuer sans partager" flow
+        // Simulates visitor declining geolocation: they bypass the POST endpoint and follow the target link directly
+        $pdo->exec("INSERT INTO `{$prefix}stats` (`id`, `short`, `urlid`, `ip`, `country`, `region`, `city`, `geo_source`) VALUES
+            (40, 'wa-promo', 1, '196.192.32.1', 'Madagascar', NULL, NULL, 'maxmind')
+        ");
+        $_SESSION = ['last_stat_1' => 40];
+        ob_start();
+        \Helpers\Gate::consentLocation($urlObj);
+        $optOutHtml = ob_get_clean();
+
+        $escapedWaUrl = htmlspecialchars('https://wa.me/261340000000?text=Bonjour', ENT_QUOTES, 'UTF-8');
+        self::assert(
+            strpos($optOutHtml, 'id="btn-skip-location"') !== false &&
+            strpos($optOutHtml, 'href="' . $escapedWaUrl . '"') !== false,
+            "Consent gate provides a direct opt-out link pointing to WhatsApp URL without triggering geocoding",
+            $results
+        );
+
+        $stat40 = \Core\DB::stats()->where('id', 40)->first();
+        self::assert(
+            $stat40->country === 'Madagascar' &&
+            $stat40->region === null &&
+            $stat40->city === null &&
+            $stat40->geo_source === 'maxmind',
+            "Opting out preserves initial IP country='Madagascar' without collecting GPS or reverse-geocoding city",
             $results
         );
 

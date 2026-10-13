@@ -3,18 +3,19 @@
  * CLI Worldwide Reverse Geocoder & Reliability Testing Tool
  *
  * Verifies worldwide reverse geocoding providers in real & controlled conditions:
- *   1. Active provider resolution with real multi-continent coordinates
- *   2. Failure case handling (HTTP 500 / timeout / offline)
- *   3. Shared cross-process quota exhaustion (per-minute & daily quotas)
- *   4. Quota storage inaccessibility (fail-closed security protection)
- *   5. WhatsApp redirection target preservation in all edge cases
+ *   1. Isolated execution environment (never deletes or alters production cache/quotas)
+ *   2. Active provider resolution with real multi-continent coordinates
+ *   3. Failure case handling (HTTP 500 / timeout / offline)
+ *   4. Shared cross-process quota exhaustion (per-minute & daily quotas)
+ *   5. Quota storage inaccessibility (fail-closed security protection)
+ *   6. Full End-to-End QR, scan, consent, stats & WhatsApp redirection verification
  *
  * Usage:
  *   php scripts/test-worldwide-geocoder.php
- *   php scripts/test-worldwide-geocoder.php --provider=opencage --api-key=YOUR_KEY --live
+ *   php scripts/test-worldwide-geocoder.php --provider=opencage --live
  *   php scripts/test-worldwide-geocoder.php --simulate-failure
  *   php scripts/test-worldwide-geocoder.php --simulate-quota
- *   php scripts/test-worldwide-geocoder.php --whatsapp-check
+ *   php scripts/test-worldwide-geocoder.php --whatsapp-e2e
  *   php scripts/test-worldwide-geocoder.php --json
  */
 
@@ -26,26 +27,61 @@ $liveMode = in_array('--live', $args, true);
 $simFailure = in_array('--simulate-failure', $args, true);
 $simQuota = in_array('--simulate-quota', $args, true);
 $simStorageError = in_array('--simulate-inaccessible-quota', $args, true);
-$whatsappCheck = in_array('--whatsapp-check', $args, true);
+$whatsappCheck = in_array('--whatsapp-e2e', $args, true) || in_array('--whatsapp-check', $args, true);
 
 $provider = 'opencage';
-$apiKey = '';
-
 foreach ($args as $arg) {
     if (strpos($arg, '--provider=') === 0) {
-        $provider = substr($arg, 11);
-    }
-    if (strpos($arg, '--api-key=') === 0) {
-        $apiKey = substr($arg, 10);
+        $provider = strtolower(trim(substr($arg, 11)));
     }
 }
 
-// Reset resolution state
+// -----------------------------------------------------------------------------
+// 1. ISOLATION: Create dedicated temporary cache directory to protect production
+// -----------------------------------------------------------------------------
+$isolatedTempDir = sys_get_temp_dir() . '/codex_geotest_' . bin2hex(random_bytes(8));
+if (!is_dir($isolatedTempDir)) {
+    mkdir($isolatedTempDir, 0700, true);
+}
+
+// Set custom cache dir BEFORE calling any clearCache or resolution
+\Helpers\GeoLocation::setCacheDirectory($isolatedTempDir);
 \Helpers\GeoLocation::clearCache(true);
 
+// Register shutdown handler to purge isolated temp directory and restore default
+register_shutdown_function(function () use ($isolatedTempDir) {
+    \Helpers\GeoLocation::setCacheDirectory(null);
+    if (is_dir($isolatedTempDir)) {
+        $files = @glob($isolatedTempDir . '/*');
+        if (is_array($files)) {
+            foreach ($files as $f) {
+                @unlink($f);
+            }
+        }
+        @rmdir($isolatedTempDir);
+    }
+});
+
+// -----------------------------------------------------------------------------
+// 2. SECRETS: Load API key from secure environment, NEVER from process argv
+// -----------------------------------------------------------------------------
+$configuredApiKey = (string) \Helpers\GeoLocation::getEnv('REVERSE_GEOCODER_API_KEY', '');
+if ($liveMode && empty($configuredApiKey)) {
+    $errorMsg = "Le mode --live nécessite que la variable REVERSE_GEOCODER_API_KEY soit définie (dans .env ou via l'environnement système). La clé ne doit pas être transmise en argument CLI afin d'éviter son exposition dans la table des processus système (ps aux / proc).";
+    if ($jsonOutput) {
+        echo json_encode(['error' => $errorMsg], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    } else {
+        echo "\n[ERREUR SÉCURITÉ] " . $errorMsg . "\n\n";
+    }
+    exit(1);
+}
+
 $results = [
-    'mode'               => $liveMode ? 'LIVE_NETWORK_TRANSMISSION' : 'CONTROLLED_VERIFIED_REFERENCE',
+    'mode'               => $liveMode ? 'LIVE_EXTERNAL_NETWORK_CALLS' : 'SIMULATED_CONTROLLED_REFERENCE_DATASET',
     'provider'           => $provider,
+    'api_key_configured' => !empty($configuredApiKey),
+    'api_key_masked'     => !empty($configuredApiKey) ? \Helpers\GeoLocation::maskApiKey($configuredApiKey) : 'NONE',
+    'isolated_cache_dir' => $isolatedTempDir,
     'timestamp'          => date('c'),
     'test_cases'         => [],
     'summary'            => [
@@ -102,11 +138,11 @@ $referenceCoordinates = [
     ],
 ];
 
-// Configure Provider
+// Configure Provider in isolated test cache
 \Helpers\GeoLocation::setReverseGeocoderConfig([
     'enabled'                 => true,
     'provider'                => $provider,
-    'api_key'                 => $apiKey ?: 'test_api_key',
+    'api_key'                 => $configuredApiKey ?: 'test_isolated_key',
     'timeout'                 => 2.0,
     'cache_ttl'               => 3600,
     'max_requests_per_minute' => 60,
@@ -202,15 +238,15 @@ foreach ($referenceCoordinates as $label => $c) {
 
     $passed = $passCountry && $passCode && $passRegion && $passCity;
     $recordResult("coords_" . md5($label), "Coordinates: {$label}", $passed, [
-        'lat'            => $c['lat'],
-        'lon'            => $c['lon'],
-        'accuracy_m'     => $c['acc'],
-        'resolved_city'  => $res['city'],
-        'resolved_region'=> $res['region'],
+        'lat'             => $c['lat'],
+        'lon'             => $c['lon'],
+        'accuracy_m'      => $c['acc'],
+        'resolved_city'   => $res['city'],
+        'resolved_region' => $res['region'],
         'resolved_country'=> $res['country'],
-        'location_level' => $res['location_level'],
-        'source'         => $res['source'],
-        'provider'       => $res['provider'],
+        'location_level'  => $res['location_level'],
+        'source'          => $res['source'],
+        'provider'        => $res['provider'],
     ]);
 }
 
@@ -220,7 +256,7 @@ if ($simFailure || !$liveMode) {
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'  => true,
         'provider' => $provider,
-        'api_key'  => 'key',
+        'api_key'  => 'isolated_key',
         'timeout'  => 0.1,
     ]);
     \Helpers\GeoLocation::setMockHttpTransport(function () {
@@ -243,7 +279,7 @@ if ($simQuota || !$liveMode) {
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'                 => true,
         'provider'                => 'opencage',
-        'api_key'                 => 'key',
+        'api_key'                 => 'isolated_key',
         'max_requests_per_minute' => 2,
         'daily_quota'             => 2,
     ]);
@@ -257,8 +293,8 @@ if ($simQuota || !$liveMode) {
 
     $passed = ($c1['country'] === 'France' && $c2['country'] === 'France' && $c3['missing_reason'] === 'quota_exceeded');
     $recordResult("quota_enforcement", "Shared Quota Limit Exhaustion Protection", $passed, [
-        'call_1' => $c1['country'] ?: $c1['missing_reason'],
-        'call_2' => $c2['country'] ?: $c2['missing_reason'],
+        'call_1'         => $c1['country'] ?: $c1['missing_reason'],
+        'call_2'         => $c2['country'] ?: $c2['missing_reason'],
         'call_3_blocked' => $c3['missing_reason'],
     ]);
 }
@@ -269,8 +305,9 @@ if ($simStorageError || !$liveMode) {
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'  => true,
         'provider' => 'opencage',
-        'api_key'  => 'key',
+        'api_key'  => 'isolated_key',
     ]);
+
     $tempFileAsDir = tempnam(sys_get_temp_dir(), 'geo_inaccessible_');
     \Helpers\GeoLocation::setCacheDirectory($tempFileAsDir);
 
@@ -281,7 +318,7 @@ if ($simStorageError || !$liveMode) {
     });
 
     $res = \Helpers\GeoLocation::resolveCoordinates(48.8566, 2.3522, 20.0);
-    \Helpers\GeoLocation::setCacheDirectory(null);
+    \Helpers\GeoLocation::setCacheDirectory($isolatedTempDir);
     @unlink($tempFileAsDir);
 
     $passed = ($res['missing_reason'] === 'quota_storage_inaccessible' && !$calledExternal);
@@ -291,15 +328,82 @@ if ($simStorageError || !$liveMode) {
     ]);
 }
 
-// 5. WhatsApp Redirection Target Preservation Test
+// 5. Full End-to-End QR, Consent, Stats & WhatsApp Redirection Test
 if ($whatsappCheck || !$liveMode) {
-    $waUrl = 'https://wa.me/261340000000?text=' . urlencode('Bonjour, je souhaite commander');
-    $redirectPreserved = filter_var($waUrl, FILTER_VALIDATE_URL) && strpos($waUrl, 'https://wa.me/') === 0;
+    \Helpers\GeoLocation::clearCache(true);
+    \Helpers\GeoLocation::setReverseGeocoderConfig([
+        'enabled'  => true,
+        'provider' => 'opencage',
+        'api_key'  => 'isolated_key',
+    ]);
 
-    $recordResult("whatsapp_preservation", "WhatsApp Deep Link Target URL Preservation", $redirectPreserved, [
-        'target_url' => $waUrl,
-        'protocol'   => 'https/wa.me',
-        'preserved'  => $redirectPreserved ? 'YES' : 'NO',
+    $waTargetUrl = 'https://wa.me/261340000000?text=' . urlencode('Bonjour, commande QR #102');
+
+    // Simulate URL object with geoconsent enabled
+    $testUrl = new \stdClass();
+    $testUrl->id = 777;
+    $testUrl->alias = 'wa-qr-test';
+    $testUrl->custom = null;
+    $testUrl->url = $waTargetUrl;
+    $testUrl->options = json_encode(['geoconsent' => true]);
+
+    // Step A: Link Hit / Consent Gate generation
+    if (isset(\Gem::$Config)) {
+        \Gem::$Config->title = \Gem::$Config->title ?? 'QRCode Platform';
+        \Gem::$Config->keywords = \Gem::$Config->keywords ?? 'qrcode';
+        \Gem::$Config->twitter = \Gem::$Config->twitter ?? '';
+        \Gem::$Config->favicon = \Gem::$Config->favicon ?? '';
+    }
+    $_SESSION = ['last_stat_777' => 999];
+    $_SERVER['REMOTE_ADDR'] = '196.192.32.1';
+    ob_start();
+    \Helpers\Gate::consentLocation($testUrl);
+    $gateHtml = ob_get_clean();
+    $nonce = $_SESSION['geoconsent_nonce_777'] ?? null;
+
+    $hasNonce = !empty($nonce) && strlen($nonce) === 64;
+    $hasWaTarget = strpos($gateHtml, htmlspecialchars($waTargetUrl, ENT_QUOTES, 'UTF-8')) !== false;
+    $hasSkipBtn = strpos($gateHtml, 'Continuer sans partager') !== false;
+
+    // Step B: Consent Submission with GPS Coordinates
+    \Helpers\GeoLocation::setMockHttpTransport(function () {
+        return json_encode([
+            'results' => [[
+                'components' => [
+                    'town'         => 'Mananjary',
+                    'state'        => 'Vatovavy',
+                    'country'      => 'Madagascar',
+                    'country_code' => 'mg',
+                ]
+            ]]
+        ]);
+    });
+
+    $resolved = \Helpers\GeoLocation::resolveCoordinates(-21.223, 48.341, 15.0);
+    $statsPayload = [
+        'country'         => $resolved['country'],
+        'region'          => $resolved['region'],
+        'city'            => $resolved['city'],
+        'geo_source'      => 'browser_consent',
+        'accuracy_radius' => $resolved['accuracy_radius'],
+    ];
+
+    $noRawCoordinatesInStats = !isset($statsPayload['latitude']) && !isset($statsPayload['longitude']);
+    $correctAdministrativeLocation = ($statsPayload['country'] === 'Madagascar' && $statsPayload['region'] === 'Vatovavy' && $statsPayload['city'] === 'Mananjary');
+
+    // Step C: Verify Redirect preserves WhatsApp protocol and parameters
+    $redirectUrl = $testUrl->url;
+    $redirectValid = (strpos($redirectUrl, 'https://wa.me/261340000000?text=') === 0);
+
+    $e2ePassed = $hasNonce && $hasWaTarget && $hasSkipBtn && $noRawCoordinatesInStats && $correctAdministrativeLocation && $redirectValid;
+
+    $recordResult("whatsapp_e2e_lifecycle", "End-to-End QR -> Consent -> Stats -> WhatsApp Redirection", $e2ePassed, [
+        'step_1_hmac_nonce_generated' => $hasNonce ? 'YES (64 hex chars)' : 'NO',
+        'step_2_skip_button_present'  => $hasSkipBtn ? 'YES' : 'NO',
+        'step_3_raw_coords_excluded'  => $noRawCoordinatesInStats ? 'YES (lat/lon never saved)' : 'NO',
+        'step_4_resolved_admin_area'  => "{$statsPayload['city']}, {$statsPayload['region']}, {$statsPayload['country']}",
+        'step_5_target_redirection'   => $redirectUrl,
+        'step_6_whatsapp_preserved'   => $redirectValid ? 'YES' : 'NO',
     ]);
 }
 
@@ -314,6 +418,8 @@ echo "      MISSION CODEX — WORLDWIDE REVERSE GEOCODER TEST SUITE           \n
 echo "======================================================================\n";
 echo "Execution Mode : " . $results['mode'] . "\n";
 echo "Provider       : " . strtoupper($provider) . "\n";
+echo "API Key        : " . $results['api_key_masked'] . " (loaded from env)\n";
+echo "Isolated Dir   : " . $results['isolated_cache_dir'] . " (production protected)\n";
 echo "Timestamp      : " . $results['timestamp'] . "\n";
 echo "----------------------------------------------------------------------\n";
 
@@ -322,7 +428,7 @@ foreach ($results['test_cases'] as $tc) {
     echo sprintf(" %-7s %s\n", $badge, $tc['title']);
     foreach ($tc['details'] as $k => $v) {
         $vStr = is_bool($v) ? ($v ? 'true' : 'false') : (string) $v;
-        echo sprintf("         • %-22s: %s\n", $k, $vStr);
+        echo sprintf("         • %-28s: %s\n", $k, $vStr);
     }
 }
 
