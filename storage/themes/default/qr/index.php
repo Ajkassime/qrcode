@@ -94,7 +94,7 @@
                                 <?php if(user()->teamPermission('qr.edit')): ?>
                                     <li><a class="dropdown-item" href="#" data-id="<?php echo $qr->id ?>" data-bs-toggle="modal" data-trigger="modalopen" data-bs-target="#channelModal" data-toggle="addtochannel"><i data-feather="package"></i> <?php ee('Add to Channel') ?></a></li>
                                     <li><a class="dropdown-item" href="<?php echo route('links.reset', [$qr->urlid, \Core\Helper::nonce('link.reset')]) ?>" data-bs-toggle="modal" data-trigger="modalopen" data-bs-target="#resetModal"><i data-feather="rotate-ccw"></i> <?php ee('Reset Stats') ?></a></li>
-                                    <li><a class="dropdown-item" href="<?php echo route('qr.duplicate', [$qr->id]) ?>"><i data-feather="copy"></i> <?php ee('Duplicate') ?></a></li>
+                                    <li><a class="dropdown-item" href="<?php echo route('qr.duplicate', [$qr->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="copy"></i> <?php ee('Duplicate') ?></a></li>
                                 <?php endif ?>
                                 <?php if(user()->teamPermission('qr.delete')): ?>
                                     <li class="dropdown-divider"></li>

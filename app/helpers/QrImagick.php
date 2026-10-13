@@ -228,11 +228,14 @@ class QRImagick {
 
         $this->Qr->bgColor = new Alpha($alpha, new Rgb(...$bgColor));
 
-        $fgColor = [];
+        $fgList = is_array($fg) ? array_values($fg) : [$fg];
+        if(count($fgList) === 1){
+            $fgList[] = $fgList[0];
+        }
 
-        foreach($fg as $fgcolor){
-            \preg_match('|rgb\((.*)\)|', $fgcolor, $color);
-            $fgColor[] = new Rgb(...\explode(',', $color[1]));
+        foreach($fgList as $fgcolor){
+            \preg_match('|rgb\((.*)\)|', (string) $fgcolor, $color);
+            $fgColor[] = new Rgb(...\explode(',', $color[1] ?? '0,0,0'));
         }
 
         if(in_array($type, ['vertical', 'horizontal', 'diagonal', 'radial'])){
@@ -378,12 +381,14 @@ class QRImagick {
      * @return void
      */
     public function getMimeType(){
-
-        if($this->extension == 'svg'){
-            return 'image/svg+xml';
-        } else {
-            return 'image/png';
-        }
+        $mimes = [
+            'svg' => 'image/svg+xml',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'pdf' => 'application/pdf',
+            'eps' => 'application/postscript',
+        ];
+        return $mimes[$this->extension ?? 'svg'] ?? 'image/png';
     }
     /**
      * Error Correction
@@ -464,30 +469,41 @@ class QRImagick {
         }
 
         if($this->extension != 'svg'){
+            if(class_exists('\Imagick')){
+                $png = new \Imagick();
+                if($this->Qr->bgColor instanceof Alpha){
+                    $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                }
+                $png->readImageBlob($qr);
+                $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
 
-            $png = new \Imagick();
-            if($this->Qr->bgColor instanceof Alpha){
-                $png->setBackgroundColor(new \ImagickPixel('transparent'));
+                if($this->extension == 'pdf'){
+                    $png->setImageFormat("pdf");
+                }elseif($this->extension == 'webp'){
+                    $png->setImageFormat("webp");
+                }else{
+                    $png->setImageFormat("png32");
+                }
+                $qr = $png->getImageBlob();
+            } else {
+                $fallback = new QrGd($this->Qr->data, $this->Qr->size, $this->Qr->margin);
+                if($this->extension == 'pdf'){
+                    $fallback->format('pdf');
+                } elseif($this->extension == 'webp'){
+                    if(function_exists('imagewebp')){
+                        $fallback->format('webp');
+                    } else {
+                        throw new \Exception(e('WebP format is not supported on this server.'));
+                    }
+                } else {
+                    $fallback->format('png');
+                }
+                if($this->Qr->logo && isset($this->Qr->logo[0])){
+                    $fallback->withLogo($this->Qr->logo[0], $this->Qr->logo[1] ?? 50);
+                }
+                $qr = $fallback->string();
             }
-            $png->readImageBlob($qr);
-            $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
-
-            if($this->extension == 'pdf'){
-                $png->setImageFormat("pdf");
-            }elseif($this->extension == 'webp'){
-                $png->setImageFormat("webp");
-            }else{
-                $png->setImageFormat("png32");
-            }
-            $qr = $png->getImageBlob();
         }
-
-        // if($this->extension == 'pdf'){
-        //     $pdf = new \FPDF();
-        //     $pdf->AddPage();
-        //     $pdf->Image('data:image/png;base64,' . base64_encode($qr), 10, 10, 190, 0, 'png');
-        //     return $pdf->Output('S');
-        // }
 
         return $qr;
     }
@@ -500,57 +516,7 @@ class QRImagick {
      */
     public function create($output = 'raw', $file = null){
 
-        $renderer = new ImageRenderer(
-            new RendererStyle($this->Qr->size, $this->Qr->margin, $this->Qr->module, $this->Qr->eye, $this->Qr->fill, $this->Qr->punched && $this->Qr->logo ? $this->Qr->logo[1] : 0, $this->Qr->punched && $this->Qr->logo ? $this->Qr->logo[1] : 0),
-            $this->writer
-        );
-
-        $writer = new Writer($renderer);
-        try{
-            $qr = $writer->writeString($this->Qr->data, 'UTF-8', $this->Qr->errorLevel);
-        } catch(\Exception $e){
-            \GemError::log($e->getMessage());
-            return new \Exception(e('An error occurred'));
-        }
-
-        if($this->Qr->logo){
-
-            $xml = new \SimpleXMLElement($qr);            
-
-            $xmlAttributes = $xml->attributes();
-
-            $x = intval($xmlAttributes->width) / 2 - $this->Qr->logo[1] / 2;
-            $y = intval($xmlAttributes->height) / 2 - $this->Qr->logo[1] / 2;
-
-            $imageDefinition = $xml->addChild('image');
-            $imageDefinition->addAttribute('x', strval($x));
-            $imageDefinition->addAttribute('y', strval($y));
-            $imageDefinition->addAttribute('width', strval($this->Qr->logo[1]));
-            $imageDefinition->addAttribute('height', strval($this->Qr->logo[1]));
-            $imageDefinition->addAttribute('preserveAspectRatio', 'none');
-
-            $imageDefinition->addAttribute('xlink:href', 'data:'.self::getMime($this->Qr->logo[0]).';base64,' . base64_encode(file_get_contents($this->Qr->logo[0])), 'http://www.w3.org/1999/xlink');
-
-            $qr = $xml->asXML();
-        }
-
-        if($this->Qr->frame){
-            $qr = FrameGenerator::build($qr, $this->Qr->size, $this->Qr->frame);
-        }
-
-        if($this->extension != 'svg'){
-
-            $png = new \Imagick();
-            if($this->Qr->bgColor instanceof Alpha){
-                $png->setBackgroundColor(new \ImagickPixel('transparent'));
-            }
-            $png->readImageBlob($qr);
-            $png->setImageFormat("png32");
-            $png->resizeImage($this->Qr->size, $this->Qr->size, \Imagick::FILTER_BOX, 1);
-
-            $qr = $png->getImageBlob();
-        }
-
+        $qr = $this->string();
 
         if($output == 'file') {
             if(config('cdn') && config('cdn')->enabled){
@@ -561,7 +527,11 @@ class QRImagick {
 
         if($output == 'uri') return 'data:'.$this->getMimeType().';base64,'.base64_encode($qr);
 
-        header('Content-Type: '.$this->getMimeType());
+        if($output == 'raw') return $qr;
+
+        if(!headers_sent()){
+            header('Content-Type: '.$this->getMimeType());
+        }
         echo $qr;
         exit;
     }

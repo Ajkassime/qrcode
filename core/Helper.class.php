@@ -543,8 +543,9 @@ final class Helper {
 	public static function Encode($string, $encoding = "bcrypt"){
 
 		$encoding = strtolower($encoding);
+		$authToken = defined('AuthToken') ? AuthToken : '';
 
-		return password_hash($string.AuthToken, PASSWORD_BCRYPT, ['cost' => self::$hashCost]);
+		return password_hash($string.$authToken, PASSWORD_BCRYPT, ['cost' => self::$hashCost]);
 	}
 	/**
 	 * Check Password
@@ -553,7 +554,8 @@ final class Helper {
 	* @return boolean
 	*/
 	public static function validatePass($string, $hash){
-		return password_verify($string.AuthToken, $hash);
+		$authToken = defined('AuthToken') ? AuthToken : '';
+		return password_verify($string.$authToken, $hash);
 	}
 	/**
 	 * Validate and sanitize email

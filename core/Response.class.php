@@ -195,6 +195,18 @@ final class Response {
 
 	}	
 	/**
+	 * Last HTTP status code set via Response
+	 * @var int
+	 */
+	private static int $lastStatusCode = 200;
+
+	/**
+	 * Instance HTTP status code
+	 * @var int
+	 */
+	private int $statusCode = 200;
+
+	/**
 	 * Set Status Code
 	 *
 	 * @author GemPixel <https://gempixel.com>
@@ -205,10 +217,26 @@ final class Response {
 
 		if($code < 100 || $code > 511) $code = 200;
 
-		http_response_code($code);
+		$this->statusCode = $code;
+		self::$lastStatusCode = $code;
+		@http_response_code($code);
 
 		return $this;
 
+	}
+
+	/**
+	 * Get instance status code
+	 */
+	public function getStatusCode(): int {
+		return $this->statusCode;
+	}
+
+	/**
+	 * Get last status code set on any Response instance
+	 */
+	public static function lastStatusCode(): int {
+		return self::$lastStatusCode;
 	}
 	/**
 	 * Set Response

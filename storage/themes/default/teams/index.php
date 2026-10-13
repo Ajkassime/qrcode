@@ -52,9 +52,9 @@
                         <span class="text-warning fw-bold align-middle"><?php ee('Requested') ?></span>
                     <?php else: ?>
                         <?php if($team->status): ?>
-                        <a class="me-2 text-dark" href="<?php echo route('team.toggle', [$team->id]) ?>"><i class="text-muted" data-feather="x-circle"></i> <span class="align-middle"><?php ee('Disable') ?></span></a>
+                        <a class="me-2 text-dark" href="<?php echo route('team.toggle', [$team->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i class="text-muted" data-feather="x-circle"></i> <span class="align-middle"><?php ee('Disable') ?></span></a>
                         <?php else: ?>
-                        <a class="me-2 text-dark" href="<?php echo route('team.toggle', [$team->id]) ?>"><i class="text-muted" data-feather="check-circle"></i> <span class="align-middle"><?php ee('Enable') ?></span></a>
+                        <a class="me-2 text-dark" href="<?php echo route('team.toggle', [$team->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i class="text-muted" data-feather="check-circle"></i> <span class="align-middle"><?php ee('Enable') ?></span></a>
                         <?php endif ?>
                     <?php endif ?>
                     <button type="button" class="btn btn-default bg-white" data-bs-toggle="dropdown" aria-expanded="false"><i data-feather="more-horizontal"></i></button>

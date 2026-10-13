@@ -50,9 +50,9 @@
                                     <ul class="dropdown-menu">
                                         <li><a class="dropdown-item" href="<?php echo route('admin.domains.edit', [$domain->id]) ?>"><i data-feather="edit"></i> <?php ee('Edit Domain') ?></a></li>
                                     <?php if($domain->status == "1"): ?>
-                                        <li><a class="dropdown-item" href="<?php echo route('admin.domains.disable', [$domain->id]) ?>"><i data-feather="x-circle"></i> <?php ee('Disable Domain') ?></a></li>
+                                        <li><a class="dropdown-item" href="<?php echo route('admin.domains.disable', [$domain->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="x-circle"></i> <?php ee('Disable Domain') ?></a></li>
                                     <?php else: ?>
-                                        <li><a class="dropdown-item" href="<?php echo route('admin.domains.activate', [$domain->id]) ?>"><i data-feather="check-circle"></i> <?php ee('Activate Domain') ?></a></li>
+                                        <li><a class="dropdown-item" href="<?php echo route('admin.domains.activate', [$domain->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="check-circle"></i> <?php ee('Activate Domain') ?></a></li>
                                     <?php endif ?>
                                         <li><a class="dropdown-item" href="<?php echo route('admin.domains.pending', [$domain->id]) ?>"><i data-feather="check-circle"></i> <?php ee('Set to pending') ?></a></li>
                                         <li><hr class="dropdown-divider"></li>

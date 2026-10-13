@@ -60,6 +60,15 @@ final class Request {
 	 */
 	private $_HTTPrequest = NULL;	
 	/**
+	 * Custom trusted proxies override for runtime/testing
+	 * @var array|null
+	 */
+	protected static ?array $_customTrustedProxies = null;
+
+	public static function setTrustedProxies(?array $config): void {
+		self::$_customTrustedProxies = $config;
+	}	
+	/**
 	 * HTTP Method
 	 * @var null
 	 */
@@ -121,7 +130,7 @@ final class Request {
 	public function __construct(){
 		
 		
-		$this->_HTTPmethod = Helper::clean($_SERVER['REQUEST_METHOD'], 3, true);
+		$this->_HTTPmethod = isset($_SERVER['REQUEST_METHOD']) ? Helper::clean($_SERVER['REQUEST_METHOD'], 3, true) : 'GET';
 
 		if(!in_array($this->_HTTPmethod, ["GET", "POST", "PUT", "DELETE","PATCH"])) return false;
 
@@ -188,6 +197,20 @@ final class Request {
 	 * Catch and process file uploads
 	 * @author GemPixel <https://gempixel.com>
 	 * @version 1.0	 
+	/**
+	 * List of executable or dangerous file extensions to reject unconditionally
+	 * @var array
+	 */
+	private $_DANGEROUSextensions = [
+		'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phps', 'pht', 'phar',
+		'exe', 'sh', 'bash', 'cgi', 'pl', 'py', 'cmd', 'bat', 'com', 'vbs', 'scr',
+		'msi', 'jsp', 'asp', 'aspx', 'htm', 'html', 'shtml', 'htaccess', 'ini', 'env'
+	];
+
+	/**
+	 * Catch and process file uploads
+	 * @author GemPixel <https://gempixel.com>
+	 * @version 1.0	 
 	 */
 	private function catchFile(){
 
@@ -198,36 +221,94 @@ final class Request {
 				if(is_array($file['name'])){
 					$this->_HTTPfiles->{$key} = [];
 					foreach($file['name'] as $i => $name){
-						if(empty($file["type"][$i]) || empty($file["name"][$i])) continue;					
-						$this->_HTTPfiles->{$key}[$i] = new \stdCLass;
-						$this->_HTTPfiles->{$key}[$i]->allowed = in_array($file["type"][$i], $this->_FILEacceptable) ? true : false;
-						$this->_HTTPfiles->{$key}[$i]->name = Helper::clean($file["name"][$i]);
-						$this->_HTTPfiles->{$key}[$i]->ext = Helper::extension($file["name"][$i]);
-						$this->_HTTPfiles->{$key}[$i]->type = Helper::clean($file["type"][$i]);
-						$this->_HTTPfiles->{$key}[$i]->location = Helper::clean($file["tmp_name"][$i]);
-						$this->_HTTPfiles->{$key}[$i]->size = $file["size"][$i];
-						$this->_HTTPfiles->{$key}[$i]->sizekb = round($file["size"][$i] / 1024, 2);
-						$this->_HTTPfiles->{$key}[$i]->sizemb = round($this->_HTTPfiles->{$key}[$i]->sizekb / 1024, 3);
-						$this->_HTTPfiles->{$key}[$i]->mimematch = (isset($this->_FILEcommon[Helper::extension($file["name"][$i])]) && in_array($file["type"][$i], $this->_FILEcommon[Helper::extension($file["name"][$i])])) ? true : false;
-						$this->_HTTPfiles->{$key}[$i]->isvalid = $this->_HTTPfiles->{$key}[$i]->mimematch;
+						if(empty($file["name"][$i])) continue;
+						
+						$sanitizedName = basename(str_replace(["\0", "\r", "\n", ".."], '', (string) $file["name"][$i]));
+						$ext = strtolower(Helper::extension($sanitizedName));
+						$clientType = Helper::clean((string) ($file["type"][$i] ?? ''));
+						$tmpLocation = (string) ($file["tmp_name"][$i] ?? '');
+
+						$realMime = null;
+						if(!empty($tmpLocation) && file_exists($tmpLocation) && is_readable($tmpLocation)){
+							if(function_exists('finfo_open')){
+								$finfo = finfo_open(FILEINFO_MIME_TYPE);
+								$realMime = finfo_file($finfo, $tmpLocation) ?: null;
+								if(PHP_VERSION_ID < 80500 && function_exists('finfo_close')){
+									finfo_close($finfo);
+								}
+							} elseif(function_exists('mime_content_type')){
+								$realMime = mime_content_type($tmpLocation) ?: null;
+							}
+						}
+
+						$isDangerous = in_array($ext, $this->_DANGEROUSextensions, true);
+						$typeMatches = false;
+						if(!$isDangerous && isset($this->_FILEcommon[$ext])){
+							$allowedMimes = $this->_FILEcommon[$ext];
+							$typeMatches = $realMime ? in_array($realMime, $allowedMimes, true) : in_array($clientType, $allowedMimes, true);
+						}
+
+						$fileObj = new \stdClass;
+						$fileObj->allowed = (!$isDangerous && in_array($clientType, $this->_FILEacceptable, true));
+						$fileObj->name = $sanitizedName;
+						$fileObj->ext = $ext;
+						$fileObj->type = $realMime ?: $clientType;
+						$fileObj->client_type = $clientType;
+						$fileObj->real_mime = $realMime;
+						$fileObj->location = $tmpLocation;
+						$fileObj->size = $file["size"][$i] ?? 0;
+						$fileObj->sizekb = round(($file["size"][$i] ?? 0) / 1024, 2);
+						$fileObj->sizemb = round($fileObj->sizekb / 1024, 3);
+						$fileObj->mimematch = (!$isDangerous && $typeMatches);
+						$fileObj->isvalid = $fileObj->mimematch;
+
+						$this->_HTTPfiles->{$key}[$i] = $fileObj;
 					}
 
 				} else {
-					if(empty($file["type"]) || empty($file["name"])) continue;
+					if(empty($file["name"])) continue;
 					if(isset($this->_HTTPfiles->{$key})) continue;
 
-					$this->_HTTPfiles->{$key} = new \stdCLass;
-					$this->_HTTPfiles->{$key}->allowed = in_array($file["type"], $this->_FILEacceptable) ? true : false;
-					$this->_HTTPfiles->{$key}->name = Helper::clean($file["name"]);
-					$this->_HTTPfiles->{$key}->ext = strtolower(Helper::extension($file["name"]));
-					$this->_HTTPfiles->{$key}->type = Helper::clean($file["type"]);
-					$this->_HTTPfiles->{$key}->location = Helper::clean($file["tmp_name"]);
-					$this->_HTTPfiles->{$key}->size = $file["size"];
-					$this->_HTTPfiles->{$key}->sizekb = round($file["size"] / 1024, 2);
-					$this->_HTTPfiles->{$key}->sizemb = round($this->_HTTPfiles->{$key}->sizekb / 1024, 3);
-					$this->_HTTPfiles->{$key}->mimematch = (isset($this->_FILEcommon[strtolower(Helper::extension($file["name"]))]) && in_array($file["type"], $this->_FILEcommon[strtolower(Helper::extension($file["name"]))])) ? true : false;
-					$this->_HTTPfiles->{$key}->isvalid = $this->_HTTPfiles->{$key}->mimematch;
+					$sanitizedName = basename(str_replace(["\0", "\r", "\n", ".."], '', (string) $file["name"]));
+					$ext = strtolower(Helper::extension($sanitizedName));
+					$clientType = Helper::clean((string) ($file["type"] ?? ''));
+					$tmpLocation = (string) ($file["tmp_name"] ?? '');
 
+					$realMime = null;
+					if(!empty($tmpLocation) && file_exists($tmpLocation) && is_readable($tmpLocation)){
+						if(function_exists('finfo_open')){
+							$finfo = finfo_open(FILEINFO_MIME_TYPE);
+							$realMime = finfo_file($finfo, $tmpLocation) ?: null;
+							if(PHP_VERSION_ID < 80500 && function_exists('finfo_close')){
+								finfo_close($finfo);
+							}
+						} elseif(function_exists('mime_content_type')){
+							$realMime = mime_content_type($tmpLocation) ?: null;
+						}
+					}
+
+					$isDangerous = in_array($ext, $this->_DANGEROUSextensions, true);
+					$typeMatches = false;
+					if(!$isDangerous && isset($this->_FILEcommon[$ext])){
+						$allowedMimes = $this->_FILEcommon[$ext];
+						$typeMatches = $realMime ? in_array($realMime, $allowedMimes, true) : in_array($clientType, $allowedMimes, true);
+					}
+
+					$fileObj = new \stdClass;
+					$fileObj->allowed = (!$isDangerous && in_array($clientType, $this->_FILEacceptable, true));
+					$fileObj->name = $sanitizedName;
+					$fileObj->ext = $ext;
+					$fileObj->type = $realMime ?: $clientType;
+					$fileObj->client_type = $clientType;
+					$fileObj->real_mime = $realMime;
+					$fileObj->location = $tmpLocation;
+					$fileObj->size = $file["size"] ?? 0;
+					$fileObj->sizekb = round(($file["size"] ?? 0) / 1024, 2);
+					$fileObj->sizemb = round($fileObj->sizekb / 1024, 3);
+					$fileObj->mimematch = (!$isDangerous && $typeMatches);
+					$fileObj->isvalid = $fileObj->mimematch;
+
+					$this->_HTTPfiles->{$key} = $fileObj;
 				}
 			}
 		}
@@ -256,26 +337,42 @@ final class Request {
 	 * @version 1.0
 	 * @param   class $request   [description]
 	 * @param   [type]  $directory [description]
-	 * @return  [type]             [description]
+	 * @return  bool
 	 */
 	public function move($request, $directory = null, $name = null){
 		
-		$directory = $directory ?? PUB."/".VIEW::UPLOADS;		
-		$filename = $name ?: $request->name;
+		$directory = $directory ?? PUB."/".VIEW::UPLOADS;
+		$targetName = basename((string) ($name ?: $request->name));
+		$targetExt = strtolower(pathinfo($targetName, PATHINFO_EXTENSION));
+
+		if(in_array($targetExt, $this->_DANGEROUSextensions, true)){
+			return false;
+		}
+
+		if(!is_dir($directory)){
+			@mkdir($directory, 0755, true);
+		}
 		
 		if(!is_null(self::$cdn)) {
 			
 			$fn = self::$cdn;
-			$key = str_replace(PUB.'/', '', $directory).'/'.$filename;
+			$key = str_replace(PUB.'/', '', $directory).'/'.$targetName;
 			
 			if($fn::factory()->upload($key, $request->location, $request->type)){
 				return true;
 			}
 		}
 
-		if(move_uploaded_file($request->location, $directory.'/'.$filename)){
-			return true;
+		$destination = rtrim($directory, '/') . '/' . $targetName;
+
+		if(is_uploaded_file($request->location)){
+			return move_uploaded_file($request->location, $destination);
 		}
+
+		if(file_exists($request->location)){
+			return @rename($request->location, $destination);
+		}
+
 		return false;
 	}
 	/**
@@ -319,12 +416,32 @@ final class Request {
 		return $this->typeof() == "post" ? true : false;
 	}
 	/**
+	 * Custom raw body override for testing
+	 * @var string|null
+	 */
+	protected static ?string $_customRawBody = null;
+
+	public static function setRawBody(?string $raw): void {
+		self::$_customRawBody = $raw;
+	}
+
+	/**
 	 * Get Request Body
 	 * @author GemPixel <https://gempixel.com>
 	 * @version 1.0
 	 */
 	public function getBody(){
+		if (self::$_customRawBody !== null) {
+			return self::$_customRawBody;
+		}
 		return file_get_contents("php://input");
+	}
+
+	/**
+	 * Alias for getBody()
+	 */
+	public function body(){
+		return $this->getBody();
 	}
 	/**
 	 * Get HTTP Code
@@ -397,7 +514,7 @@ final class Request {
 	 * @return void
 	 */
 	public function path($withquery = false){
-		$path = rawurldecode(trim(rtrim($this->server("REQUEST_URI"), "/"), "/"));
+		$path = rawurldecode(trim(rtrim((string) $this->server("REQUEST_URI"), "/"), "/"));
 		$base = trim(str_replace('/public/index.php', '', $this->server('PHP_SELF')), '/');
 		$path = trim(preg_replace("~$base~", '', $path, 1), '/');		
 
@@ -428,7 +545,7 @@ final class Request {
 	 * @param   int    $segment [description]
 	 * @return  [type]          [description]
 	 */
-	public function segment(int $segment = null){
+	public function segment(?int $segment = null){
 
 		$uri = explode("/", $this->path());
 
@@ -443,6 +560,13 @@ final class Request {
 	 */
 	public function http(){
 		return $this->isSecure() ? "https" : "http";
+	}
+	/**
+	 * Return HTTP request method (e.g. GET, POST, PUT, DELETE, PATCH)
+	 * @return string
+	 */
+	public function method(): string {
+		return strtoupper((string) ($this->_HTTPmethod ?? ($_SERVER['REQUEST_METHOD'] ?? 'GET')));
 	}
 	/**
 	 * Is Secure
@@ -473,31 +597,112 @@ final class Request {
 		return ($this->server("HTTP_X_REQUESTED_WITH") && strcasecmp($_SERVER['HTTP_X_REQUESTED_WITH'], 'xmlhttprequest') == 0) ? true : false;
 	}
 	/**
-	 * Get Requester IP
+	 * Get Requester IP with strict reverse proxy validation
 	 * @author GemPixel <https://gempixel.com>
-	 * @version 6.2.1
+	 * @version 7.0
 	 */
-	public function ip(){
+	public function ip(): string {
+		$remoteAddr = isset($_SERVER['REMOTE_ADDR']) ? Helper::clean($_SERVER['REMOTE_ADDR'], 3, true) : '127.0.0.1';
 
-		if(isset($_SERVER['HTTP_CF_CONNECTING_IP'])) $ipaddress =  $_SERVER['HTTP_CF_CONNECTING_IP'];
-		elseif (isset($_SERVER['HTTP_X_REAL_IP'])) 	 	$ipaddress = $_SERVER['HTTP_X_REAL_IP'];
-		elseif (isset($_SERVER['HTTP_CLIENT_IP']))	 		$ipaddress = $_SERVER['HTTP_CLIENT_IP'];
-		elseif (isset($_SERVER['HTTP_X_FORWARDED_FOR']))		$ipaddress = $_SERVER['HTTP_X_FORWARDED_FOR'];
-		elseif (isset($_SERVER['HTTP_X_FORWARDED']))		$ipaddress = $_SERVER['HTTP_X_FORWARDED'];
-		elseif (isset($_SERVER['HTTP_FORWARDED_FOR'])) $ipaddress = $_SERVER['HTTP_FORWARDED_FOR'];
-		elseif (isset($_SERVER['HTTP_FORWARDED']))	$ipaddress = $_SERVER['HTTP_FORWARDED'];
-		elseif (isset($_SERVER['REMOTE_ADDR']))	$ipaddress = $_SERVER['REMOTE_ADDR'];
-
-		$ipaddress = Helper::clean($ipaddress, 3, true);
-
-		if(substr($ipaddress, 0, 7) == "::ffff:"){
-		    $ipaddress = str_replace("::ffff:", "", $ipaddress);
+		if (substr($remoteAddr, 0, 7) === '::ffff:') {
+			$remoteAddr = substr($remoteAddr, 7);
 		}
-		
-		$ip = explode(",", $ipaddress);
-		if(is_array($ip) && count($ip) > 1) return $ip[0];
 
-		return $ipaddress;
+		if (!filter_var($remoteAddr, FILTER_VALIDATE_IP)) {
+			return '127.0.0.1';
+		}
+
+		$trustedConfig = self::$_customTrustedProxies !== null ? self::$_customTrustedProxies : appConfig('app.trusted_proxies');
+		$trustedIps = is_array($trustedConfig) && isset($trustedConfig['ips']) && is_array($trustedConfig['ips']) ? $trustedConfig['ips'] : [];
+		$trustCloudflare = is_array($trustedConfig) && !empty($trustedConfig['trust_cloudflare']);
+
+		// Determine if the network peer (REMOTE_ADDR) is a trusted proxy
+		$isTrusted = false;
+		$isCloudflarePeer = false;
+
+		if ($trustCloudflare && class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::isCloudflareProxy($remoteAddr)) {
+			$isTrusted = true;
+			$isCloudflarePeer = true;
+		}
+
+		if (!$isTrusted && class_exists('\Helpers\GeoLocation')) {
+			foreach ($trustedIps as $trustedRange) {
+				if (\Helpers\GeoLocation::isIpInCidr($remoteAddr, (string) $trustedRange)) {
+					$isTrusted = true;
+					break;
+				}
+			}
+		}
+
+		// If REMOTE_ADDR is NOT a trusted proxy, strictly return REMOTE_ADDR (ignore client-controlled headers)
+		if (!$isTrusted) {
+			return $remoteAddr;
+		}
+
+		// When trusted: check Cloudflare connecting IP if peer is from Cloudflare
+		if ($isCloudflarePeer && isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+			$cfIp = trim((string) $_SERVER['HTTP_CF_CONNECTING_IP']);
+			if (substr($cfIp, 0, 7) === '::ffff:') {
+				$cfIp = substr($cfIp, 7);
+			}
+			if (filter_var($cfIp, FILTER_VALIDATE_IP)) {
+				return $cfIp;
+			}
+		}
+
+		// When trusted: inspect X-Forwarded-For chain from right to left
+		if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+			$rawXff = explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR']);
+			$chain = array_reverse(array_map('trim', $rawXff));
+
+			foreach ($chain as $candidate) {
+				if (substr($candidate, 0, 7) === '::ffff:') {
+					$candidate = substr($candidate, 7);
+				}
+				if (!filter_var($candidate, FILTER_VALIDATE_IP)) {
+					continue;
+				}
+
+				// Check if candidate is another intermediate trusted proxy
+				$isIntermediateTrusted = false;
+				if ($trustCloudflare && class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::isCloudflareProxy($candidate)) {
+					$isIntermediateTrusted = true;
+				}
+				if (!$isIntermediateTrusted && class_exists('\Helpers\GeoLocation')) {
+					foreach ($trustedIps as $trustedRange) {
+						if (\Helpers\GeoLocation::isIpInCidr($candidate, (string) $trustedRange)) {
+							$isIntermediateTrusted = true;
+							break;
+						}
+					}
+				}
+
+				if (!$isIntermediateTrusted) {
+					return $candidate;
+				}
+			}
+		}
+
+		// When trusted: check X-Real-IP
+		if (isset($_SERVER['HTTP_X_REAL_IP'])) {
+			$realIp = trim((string) $_SERVER['HTTP_X_REAL_IP']);
+			if (substr($realIp, 0, 7) === '::ffff:') {
+				$realIp = substr($realIp, 7);
+			}
+			if (filter_var($realIp, FILTER_VALIDATE_IP)) {
+				return $realIp;
+			}
+		}
+
+		return $remoteAddr;
+	}
+
+	/**
+	 * Check if current requester IP is a public IP
+	 */
+	public function isPublicIp(?string $ip = null): bool {
+		$ip = $ip ?? $this->ip();
+		return class_exists('\Helpers\GeoLocation') ? \Helpers\GeoLocation::isPublicIp($ip) : (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false);
 	}
 	/**
 	 * Current User Agent
@@ -607,32 +812,55 @@ final class Request {
 	public function country($ip = null){		
 		$ip = $ip ?? $this->ip();
 
-		if(appConfig('app.geodriver') == 'api'){
+		if(appConfig('app.geodriver') == 'custom'){
+			return \call_user_func_array(appConfig('app.geopath'), [$ip]);
+		}
 
+		if(class_exists('\Helpers\GeoLocation')){
+			$geo = \Helpers\GeoLocation::locate($ip);
+			return [
+				'city'            => $geo['city'] ?? '',
+				'state'           => $geo['region'] ?? '',
+				'region'          => $geo['region'] ?? '',
+				'country'         => $geo['country'] ?? '',
+				'country_code'    => $geo['country_code'] ?? '',
+				'accuracy_radius' => $geo['accuracy_radius'] ?? null,
+				'source'          => $geo['source'] ?? 'unknown',
+				'precision'       => $geo['precision'] ?? 'unknown',
+			];
+		}
+
+		if(appConfig('app.geodriver') == 'api'){
 			$url = str_replace('{IP}', $ip, appConfig('app.geopath'));
 			$response = Http::url($url)->get()->bodyObject();
 			return ['city' => $response->city, 'country' => $response->country_name];
 		}
 
-		if(appConfig('app.geodriver') == 'maxmind'){
-			try{
-				$reader = new \MaxMind\Db\Reader(appConfig('app.geopath'));
-				$response = $reader->get($ip);
-				$reader->close();
-				
-				if(isset($response['country']['names']['en']) && $response['country']['names']['en'] == 'Türkiye') $response['country']['names']['en'] = 'Turkey';
-
-				return ['city' => $response['city']['names']['en'] ?? '', 'state' => $response['subdivisions'][0]['names']['en'] ?? '', 'country' => $response['country']['names']['en'] ?? ''];				
+		$geopath = appConfig('app.geopath');
+		if(empty($geopath) || !file_exists($geopath)){
+			return ['city' => null, 'state' => null, 'country' => null];
+		}
+		try{
+			$reader = new \MaxMind\Db\Reader($geopath);
+			$response = $reader->get($ip);
+			$reader->close();
 			
-			} catch(\Exception $e){
-				\GemError::log('IP Error: '.$e->getMessage(), ['ip' => $ip]);
-				return ['city' => null, 'state' => null, 'country' => null];
-			}
-		}
+			if(isset($response['country']['names']['en']) && $response['country']['names']['en'] == 'Türkiye') $response['country']['names']['en'] = 'Turkey';
 
-		if(appConfig('app.geodriver') == 'custom'){
-			return \call_user_func_array(appConfig('app.geopath'), [$ip]);
+			return ['city' => $response['city']['names']['en'] ?? '', 'state' => $response['subdivisions'][0]['names']['en'] ?? '', 'country' => $response['country']['names']['en'] ?? ''];				
+		
+		} catch(\Exception $e){
+			\GemError::log('IP Error: '.$e->getMessage(), ['ip' => $ip]);
+			return ['city' => null, 'state' => null, 'country' => null];
 		}
+	}
+
+	/**
+	 * Full Geographic Resolution
+	 */
+	public function geo(?string $ip = null): array {
+		$ip = $ip ?? $this->ip();
+		return class_exists('\Helpers\GeoLocation') ? \Helpers\GeoLocation::locate($ip) : $this->country($ip);
 	}
 	/**
    * Read/Write Cookie

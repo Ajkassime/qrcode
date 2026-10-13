@@ -303,6 +303,11 @@ class Gem {
 
         if(self::$Middleware && !is_null(self::$Middleware)) self::$controllers[self::$Name]["middleware"] = self::$Middleware;
 
+        $mutationMethods = array_intersect(array_map('strtoupper', $method), ["POST", "PUT", "DELETE", "PATCH"]);
+        if(!empty($mutationMethods)){
+            if(!isset(self::$controllers[self::$Name]["middleware"]) || !in_array("CSRF", self::$controllers[self::$Name]["middleware"])) self::$controllers[self::$Name]["middleware"][] = "CSRF";
+        }
+
         return self::getInstance();
     }
     /**
@@ -359,6 +364,8 @@ class Gem {
 
         if(self::$Middleware && !is_null(self::$Middleware)) self::$controllers[self::$Name]["middleware"] = self::$Middleware;
 
+        if(!isset(self::$controllers[self::$Name]["middleware"]) || !in_array("CSRF", self::$controllers[self::$Name]["middleware"])) self::$controllers[self::$Name]["middleware"][] = "CSRF";
+
         return self::getInstance();
     }
     /**
@@ -376,6 +383,8 @@ class Gem {
         self::$controllers[self::$Name] = ["method" => "DELETE", "path" => rtrim(self::$routePrefix.$path, "/"), "handler" => $handler, "name" => self::$Name];
 
         if(self::$Middleware && !is_null(self::$Middleware)) self::$controllers[self::$Name]["middleware"] = self::$Middleware;
+
+        if(!isset(self::$controllers[self::$Name]["middleware"]) || !in_array("CSRF", self::$controllers[self::$Name]["middleware"])) self::$controllers[self::$Name]["middleware"][] = "CSRF";
 
         return self::getInstance();
     }
@@ -566,5 +575,13 @@ class Gem {
             }
             unset($middlewareClass, $middlewareMethod);
         }
+    }
+    /**
+     * Get all registered routes
+     *
+     * @return array
+     */
+    public static function getRoutes(): array {
+        return self::$controllers;
     }
 }

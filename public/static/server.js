@@ -190,10 +190,15 @@ $(document).ready(function(){
 			if($(this).prop('checked')) ids.push($(this).val());
 		});
 
+        let token = $('input[name=_token]').val() || '';
+
         $.ajax({
-            type: "GET",
+            type: "POST",
             url: $(this).attr('href'),
-            data: "selected="+JSON.stringify(ids),
+            data: {
+                selected: JSON.stringify(ids),
+                _token: token
+            },
             beforeSend: function() {
               $("#return-ajax").html('<div class="preloader"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
             },
@@ -212,6 +217,17 @@ $(document).ready(function(){
                 }
             }
         });
+    });
+
+    $(document).on('click', '[data-trigger=post], [data-method=post]', function(e){
+        e.preventDefault();
+        let url = $(this).attr('href');
+        let token = $(this).data('token') || $('input[name=_token]').val() || '';
+        let form = $('<form action="' + url + '" method="POST" style="display:none;">' +
+            '<input type="hidden" name="_token" value="' + token + '">' +
+            '</form>');
+        $('body').append(form);
+        form.submit();
     });
 
     $(document).on('change', "#payment-form select", function(){

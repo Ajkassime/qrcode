@@ -2466,7 +2466,7 @@ class BioWidgets {
 
         $data['email'] = Helper::clean($data['email'], 3);
 
-        $data['amount'] = (double) Helper::clean($data['amount'], 3);
+        $data['amount'] = (float) Helper::clean($data['amount'], 3);
 
         if($data['email'] && !Helper::Email($data['email'])) throw new Exception(e('Please enter a valid email'));
 

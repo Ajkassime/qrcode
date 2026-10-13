@@ -171,15 +171,20 @@ class Stats {
             }
             $i++;
         }    
+        $hasRegion = class_exists('\Helpers\GeoLocation') && \Helpers\GeoLocation::hasStatsColumn('region');
+
         $cities = Helper::cacheGet("citiesmap".Auth::user()->rID());
 
         if($cities == null){
-            $cities = DB::stats()
+            $query = DB::stats()
                         ->selectExpr('COUNT(id)', 'count')
                         ->selectExpr('city', 'city')
-                        ->selectExpr('country', 'country')
-                        ->where("urluserid", Auth::user()->rID())
-                        ->groupByExpr('city, country')
+                        ->selectExpr('country', 'country');
+            if ($hasRegion) {
+                $query->selectExpr('region', 'region');
+            }
+            $cities = $query->where("urluserid", Auth::user()->rID())
+                        ->groupByExpr($hasRegion ? 'city, region, country' : 'city, country')
                         ->orderByDesc('count')
                         ->findArray();
             Helper::cacheSet("citiesmap", $cities, 60*60);
@@ -188,16 +193,32 @@ class Stats {
         foreach ($cities as $list) {
 
             $name = $list["country"] ? Helper::Country(ucwords($list["country"]), false, true) : 'unknown';
+            $cityVal = !empty($list['city']) ? trim($list['city']) : '';
+            $regionVal = !empty($list['region']) ? trim($list['region']) : '';
+            $countryVal = !empty($list['country']) ? trim($list['country']) : '';
 
-            if(empty($list["country"])) $list["country"] = e('Unknown');
-            if(empty($list["city"])) $list["city"] = e('Unknown');
+            $displayName = class_exists('\Helpers\GeoLocation')
+                ? \Helpers\GeoLocation::formatLocationName($cityVal, $regionVal, $countryVal ?: e('Unknown'))
+                : ($cityVal ? ucwords($cityVal).', '.ucwords($countryVal ?: e('Unknown')) : e('Unknown'));
 
-            $topCities[$list['city'].'-'.$name] = ['name' => ucwords($list['city']).', '.ucwords($list["country"]), 'country' => $name, 'count' => $list["count"]];
+            $key = ($cityVal ?: 'undetermined') . '-' . ($regionVal ?: 'undetermined') . '-' . $name;
+
+            $topCities[$key] = [
+                'name'    => $displayName,
+                'country' => $name,
+                'count'   => (int) $list["count"],
+                'city'    => $cityVal,
+                'region'  => $regionVal
+            ];
 
             $i++;
         }
 
-        return (new Response(['list' => $country, 'top' => $topCountries, 'cities' => $topCities]))->json();  
+        $quality = class_exists('\Helpers\GeoLocation')
+            ? \Helpers\GeoLocation::calculateQualityMetrics($cities)
+            : ['identified_city_count' => 0, 'region_only_count' => 0, 'undetermined_count' => 0, 'total' => 0, 'completeness_percent' => 0];
+
+        return (new Response(['list' => $country, 'top' => $topCountries, 'cities' => $topCities, 'quality' => $quality]))->json();  
     }  
         /**
      * View Activity

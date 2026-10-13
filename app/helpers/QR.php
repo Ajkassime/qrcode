@@ -72,27 +72,125 @@ class QR {
         }
     
 
-        if(self::hasImagick()){
-            try{
-                return new QrImagick($data, $size, $margin);
-            }catch(\Exception $e){                
-                \GemError::log('QR Imagick Error:'.$e->getMessage());
-                throw new \Exception(e('An error internal server error occurred. Please change the QR type.'));
-            }
-            
+        try {
+            return new QrImagick($data, $size, $margin);
+        } catch(\Exception $e){
+            \GemError::log('QR Imagick Error: '.$e->getMessage());
+            return new QrGd($data, $size, $margin);
         }
-
-        return new QrGd($data, $size, $margin);        
     }
     /**
-     * Check if can use Imagick
+     * Check if can use Imagick or advanced vector engine
      *
      * @author GemPixel <https://gempixel.com> 
-     * @version 7.1
+     * @version 7.5
+     * @param string|null $format
      * @return boolean
      */
-    public static function hasImagick(){
-        return true;
+    public static function hasImagick(?string $format = null){
+        $extensionLoaded = extension_loaded('imagick') && class_exists('\Imagick');
+
+        // SVG rendering is vector-based in pure PHP via BaconQrCode and does not require ext-imagick
+        if($format !== null && strtolower($format) === 'svg'){
+            return true;
+        }
+
+        if($format !== null){
+            return $extensionLoaded;
+        }
+
+        return $extensionLoaded;
+    }
+    /**
+     * Check if GD extension is available
+     *
+     * @return boolean
+     */
+    public static function hasGd(){
+        return extension_loaded('gd') && function_exists('imagecreate');
+    }
+    /**
+     * Centralized QR design application
+     *
+     * @param object $data QrImagick or QrGd instance
+     * @param object|array $qrData Decoded QR design data
+     * @param object|null $user User model for permissions
+     * @param int $size Base size
+     * @param int $margin Margin
+     * @return object
+     */
+    public static function applyDesign($data, $qrData, $user = null, $size = 1000, $margin = 0){
+        $qrData = (object) $qrData;
+
+        // Gradient or solid colors
+        if(($data instanceof QrImagick || self::hasImagick()) && isset($qrData->gradient) && !empty($qrData->gradient)){
+            $gradient = (array) $qrData->gradient;
+            if(isset($qrData->eyeframecolor) && $qrData->eyeframecolor){
+                $gradient[] = $qrData->eyeframecolor;
+            }
+            if(isset($qrData->eyecolor) && $qrData->eyecolor){
+                $gradient[] = $qrData->eyecolor;
+            }
+            $data->gradient(...$gradient);
+        } else {
+            $fg = $qrData->color->fg ?? $qrData->fg ?? 'rgb(0,0,0)';
+            $bg = $qrData->color->bg ?? $qrData->bg ?? 'rgb(255,255,255)';
+            $data->color($fg, $bg, $qrData->eyeframecolor ?? null, $qrData->eyecolor ?? null);
+        }
+
+        // Matrix module
+        if(isset($qrData->matrix) && $qrData->matrix){
+            $data->module($qrData->matrix);
+        }
+
+        // Eye shape
+        if(isset($qrData->eye) && $qrData->eye){
+            $data->eye($qrData->eye, $qrData->eyeframe ?? 'square');
+        }
+
+        // Frame
+        if(isset($qrData->frame) && $qrData->frame && (!$user || $user->has('qrframes'))){
+            $options = (array) $qrData->frame;
+            $options['bg'] = (isset($qrData->mode) && $qrData->mode == 'gradient' && isset($qrData->gradient[1]))
+                ? $qrData->gradient[1]
+                : ($qrData->color->bg ?? $qrData->bg ?? 'rgb(255,255,255)');
+
+            if(isset($qrData->frame->font) && in_array($qrData->frame->font, ['Arial', 'Courier_New', 'Times_New_Roman', 'Comic_Sans_MS', 'Verdana', 'Impact', 'Tahoma'])){
+                $options['font'] = str_replace('_', ' ', $qrData->frame->font);
+            }
+            $data->withFrame($options);
+        }
+
+        // Logo
+        $logoSize = ($qrData->logosize ?? 150) * $size / 1000;
+        $effectiveMargin = ($margin > 0) ? ($logoSize - $margin * 4) : $logoSize;
+
+        if(!$user || $user->has('qrlogo')){
+            if(!empty($qrData->punchedlogo)){
+                $data->isPunched();
+            }
+            if(!empty($qrData->definedlogo) && $qrData->definedlogo !== 'none.png'){
+                $data->withLogo(PUB.'/static/images/'.$qrData->definedlogo, $effectiveMargin);
+            }
+            if(!empty($qrData->custom)){
+                $customPath = \Core\View::storage($qrData->custom, 'qr');
+                if(file_exists($customPath)){
+                    $data->withLogo($customPath, $effectiveMargin);
+                }
+            }
+        } else {
+            if(config('qrlogo')){
+                $defaultLogoSize = ($margin > 0) ? (250 - $margin * 4) : 250;
+                $data->withLogo(PUB.'/content/'.config('qrlogo'), $defaultLogoSize);
+            }
+        }
+
+        // Error correction
+        if(isset($qrData->error) && in_array($qrData->error, ['l', 'm', 'q', 'h'])){
+            $data->errorCorrection($qrData->error);
+        }
+
+        return $data;
     }    
     /**
      * Check if Type Exists

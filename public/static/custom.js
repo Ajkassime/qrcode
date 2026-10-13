@@ -225,6 +225,16 @@ $(document).ready(function(){
 
 		$($(this).data('for')).val(JSON.stringify(ids));
 	});
+	$(document).on('click', '[data-trigger=post], [data-method=post]', function(e){
+		e.preventDefault();
+		let url = $(this).attr('href') || $(this).data('href');
+		let token = $(this).data('token') || $('input[name=_token]').val() || '';
+		let form = $('<form action="' + url + '" method="POST" style="display:none;">' +
+			'<input type="hidden" name="_token" value="' + token + '">' +
+			'</form>');
+		$('body').append(form);
+		form.submit();
+	});
 	if($(".copy").length > 0){
 		new ClipboardJS('.copy');  
 		$(document).on("click", ".copy", function(e){

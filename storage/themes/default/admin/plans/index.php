@@ -71,7 +71,7 @@
                         <td>
                             <button type="button" class="btn btn-default bg-transparent float-end" data-bs-toggle="dropdown" aria-expanded="false"><i data-feather="more-horizontal"></i></button>
                             <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="<?php echo route('admin.plans.toggle', [$plan->id]) ?>"> <?php echo $plan->status == '1' ? '<i data-feather="toggle-left"></i> '.e('Disable') : '<i data-feather="toggle-right"></i> '.e('Enable') ?></a></li>
+                                <li><a class="dropdown-item" href="<?php echo route('admin.plans.toggle', [$plan->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"> <?php echo $plan->status == '1' ? '<i data-feather="toggle-left"></i> '.e('Disable') : '<i data-feather="toggle-right"></i> '.e('Enable') ?></a></li>
                                 <li><a class="dropdown-item" href="<?php echo route('admin.plans.edit', [$plan->id]) ?>"><i data-feather="edit"></i> <?php ee('Edit') ?></a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item text-danger" data-bs-toggle="modal" data-trigger="modalopen" data-bs-target="#deleteModal" href="<?php echo route('admin.plans.delete', [$plan->id, \Core\Helper::nonce('plan.delete')]) ?>"><i data-feather="trash"></i> <?php ee('Delete') ?></a></li>

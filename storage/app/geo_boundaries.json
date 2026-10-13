@@ -1,0 +1,226 @@
+{
+  "version": "3.0.0",
+  "authoritative_polygons": false,
+  "license": "CC0-1.0 / ISO-3166 Reference Metadata",
+  "description": "Administrative Subdivision Reference Registry (ISO 3166-1 / Unique Madagascar 23-Region Codes). Approximate rectangular polygons have been removed and are never used to assign cities or regions in production. Coordinate resolution requires a configured reverse geocoding provider or an external authoritative multi-vertex GeoJSON boundary dataset.",
+  "code_standard_classification": {
+    "official_iso_3166_2_provinces": {
+      "standard": "ISO 3166-2:MG",
+      "description": "Codes officiels de la norme internationale ISO 3166-2:MG désignant les 6 provinces historiques de Madagascar : MG-T (Antananarivo), MG-F (Fianarantsoa), MG-D (Antsiranana), MG-M (Mahajanga), MG-A (Toamasina), MG-U (Toliara)."
+    },
+    "internal_instat_regional_codes": {
+      "standard": "INSTAT / Découpage administratif interne à 23 régions",
+      "description": "Codes régionaux internes uniques préfixés par MG- (ex. MG-ANA pour Analamanga, MG-VAT pour Vatovavy, MG-FIT pour Fitovinany) utilisés par l'application pour lever toute ambiguïté et identifier individuellement chaque région administrative sans collision avec la norme ISO 3166-2."
+    }
+  },
+  "madagascar_regions": [
+    {
+      "name": "Analamanga",
+      "code": "MG-ANA",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Antananarivo",
+      "communes": ["Antananarivo", "Ambohidratrimo", "Andramasina", "Anjozorobe", "Ankazobe", "Manjakandriana"]
+    },
+    {
+      "name": "Vakinankaratra",
+      "code": "MG-VAK",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Antsirabe",
+      "communes": ["Antsirabe", "Ambatolampy", "Antanifotsy", "Betafo", "Faratsiho", "Mandoto"]
+    },
+    {
+      "name": "Itasy",
+      "code": "MG-ITA",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Miarinarivo",
+      "communes": ["Miarinarivo", "Arivonimamo", "Soavinandriana"]
+    },
+    {
+      "name": "Bongolava",
+      "code": "MG-BON",
+      "iso_province_code": "MG-T",
+      "province_name": "Antananarivo",
+      "type": "region",
+      "cheflieu": "Tsiroanomandidy",
+      "communes": ["Tsiroanomandidy", "Fenoarivobe"]
+    },
+    {
+      "name": "Haute Matsiatra",
+      "code": "MG-HMA",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Fianarantsoa",
+      "communes": ["Fianarantsoa", "Ambalavao", "Ambohimahasoa", "Ikalamavony", "Isandra", "Lalangina", "Vohibato"]
+    },
+    {
+      "name": "Amoron'i Mania",
+      "code": "MG-AMA",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Ambositra",
+      "communes": ["Ambositra", "Ambatofinandrahana", "Fandriana", "Manandriana"]
+    },
+    {
+      "name": "Vatovavy",
+      "code": "MG-VAT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Mananjary",
+      "communes": ["Mananjary", "Ifanadiana", "Nosy Varika"]
+    },
+    {
+      "name": "Fitovinany",
+      "code": "MG-FIT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Manakara",
+      "communes": ["Manakara", "Ikongo", "Vohipeno"]
+    },
+    {
+      "name": "Atsimo-Atsinanana",
+      "code": "MG-AAT",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Farafangana",
+      "communes": ["Farafangana", "Befotaka", "Midongy-Atsimo", "Vangaindrano", "Vondrozo"]
+    },
+    {
+      "name": "Ihorombe",
+      "code": "MG-IHO",
+      "iso_province_code": "MG-F",
+      "province_name": "Fianarantsoa",
+      "type": "region",
+      "cheflieu": "Ihosy",
+      "communes": ["Ihosy", "Iakora", "Ivohibe"]
+    },
+    {
+      "name": "Atsinanana",
+      "code": "MG-ATS",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Toamasina",
+      "communes": ["Toamasina", "Antanambao Manampotsy", "Brickaville", "Mahanoro", "Marolambo", "Vatomandry"]
+    },
+    {
+      "name": "Alaotra-Mangoro",
+      "code": "MG-ALM",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Ambatondrazaka",
+      "communes": ["Ambatondrazaka", "Amparafaravola", "Andilamena", "Anosibe An'ala", "Moramanga"]
+    },
+    {
+      "name": "Analanjirofo",
+      "code": "MG-ANJ",
+      "iso_province_code": "MG-A",
+      "province_name": "Toamasina",
+      "type": "region",
+      "cheflieu": "Fenoarivo Atsinanana",
+      "communes": ["Fenoarivo Atsinanana", "Mananara Avaratra", "Maroantsetra", "Sainte-Marie", "Soanierana Ivongo", "Vavatenina"]
+    },
+    {
+      "name": "Boeny",
+      "code": "MG-BOE",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Mahajanga",
+      "communes": ["Mahajanga", "Ambato-Boeni", "Marovoay", "Mitsinjo", "Soalala"]
+    },
+    {
+      "name": "Sofia",
+      "code": "MG-SOF",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Antsohihy",
+      "communes": ["Antsohihy", "Analalava", "Bealanana", "Befandriana-Avaratra", "Mampikony", "Mandritsara", "Port-Bergé"]
+    },
+    {
+      "name": "Betsiboka",
+      "code": "MG-BET",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Maevatanana",
+      "communes": ["Maevatanana", "Kandreho", "Tsaratanana"]
+    },
+    {
+      "name": "Melaky",
+      "code": "MG-MEL",
+      "iso_province_code": "MG-M",
+      "province_name": "Mahajanga",
+      "type": "region",
+      "cheflieu": "Maintirano",
+      "communes": ["Maintirano", "Ambatomainty", "Antsalova", "Besalampy", "Morafenobe"]
+    },
+    {
+      "name": "Diana",
+      "code": "MG-DIA",
+      "iso_province_code": "MG-D",
+      "province_name": "Antsiranana",
+      "type": "region",
+      "cheflieu": "Antsiranana",
+      "communes": ["Antsiranana", "Ambanja", "Ambilobe", "Nosy Be"]
+    },
+    {
+      "name": "Sava",
+      "code": "MG-SAV",
+      "iso_province_code": "MG-D",
+      "province_name": "Antsiranana",
+      "type": "region",
+      "cheflieu": "Sambava",
+      "communes": ["Sambava", "Andapa", "Antalaha", "Vohemar"]
+    },
+    {
+      "name": "Atsimo-Andrefana",
+      "code": "MG-AAN",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Toliara",
+      "communes": ["Toliara", "Ampanihy", "Ankazoabo", "Benenitra", "Beroroha", "Betioky-Atsimo", "Morombe", "Sakaraha"]
+    },
+    {
+      "name": "Menabe",
+      "code": "MG-MEN",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Morondava",
+      "communes": ["Morondava", "Belon'i Tsiribihina", "Mahabo", "Manja", "Miandrivazo"]
+    },
+    {
+      "name": "Anosy",
+      "code": "MG-ANO",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Taolagnaro",
+      "communes": ["Taolagnaro", "Amboasary-Atsimo", "Betroka"]
+    },
+    {
+      "name": "Androy",
+      "code": "MG-AND",
+      "iso_province_code": "MG-U",
+      "province_name": "Toliara",
+      "type": "region",
+      "cheflieu": "Ambovombe",
+      "communes": ["Ambovombe", "Bekily", "Beloha", "Tsihombe"]
+    }
+  ],
+  "countries": []
+}

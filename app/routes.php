@@ -80,8 +80,6 @@ Gem::get($prefix.'/affiliate', 'Page@affiliate')->name('affiliate')->middleware(
 
 Gem::route(['GET', 'POST'], '/u/{username}', 'Link@profile')->name('profile')->middleware('CheckDomain');
 
-// Gem::get('/packed.{ext}', 'Home@packed')->name('packed')->middleware('CheckDomain');
-
 Gem::group($prefix.'/user', function(){
 
     Gem::get('/login', 'Users@login')->middleware('CheckDomain')->middleware('UserLogged')->name('login');
@@ -127,10 +125,10 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/links/refresh/archive', 'User\Dashboard@refreshArchive')->name('links.refresh.archive');
     Gem::get('/links/{id}/delete/{token}', 'Link@delete')->name('links.delete');
     Gem::post('/links/deleteselected', 'Link@deleteMany')->name('links.deleteall');
-    Gem::get('/links/archiveselected', 'Link@archiveSelected')->name('links.archive');
-    Gem::get('/links/unarchiveselected', 'Link@unarchiveSelected')->name('links.unarchive');
-    Gem::get('/links/publicselected', 'Link@publicSelected')->name('links.public');
-    Gem::get('/links/privateselected', 'Link@privateSelected')->name('links.private');
+    Gem::post('/links/archiveselected', 'Link@archiveSelected')->name('links.archive');
+    Gem::post('/links/unarchiveselected', 'Link@unarchiveSelected')->name('links.unarchive');
+    Gem::post('/links/publicselected', 'Link@publicSelected')->name('links.public');
+    Gem::post('/links/privateselected', 'Link@privateSelected')->name('links.private');
     Gem::post('/links/exportselected', 'User\Export@exportSelected')->name('links.export');
     Gem::post('/links/addtocampaign', 'Link@addtocampaign')->name('links.addtocampaign');
     Gem::get('/links/{id}/edit', 'Link@edit')->name('links.edit');
@@ -208,7 +206,7 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/teams/{id}/edit', 'User\Teams@edit')->name('team.edit');
     Gem::post('/teams/{id}/update', 'User\Teams@update')->name('team.update');
     Gem::get('/teams/switch/{token}', 'User\Teams@switch')->name('team.switch');
-    Gem::get('/teams/toggle/{id}', 'User\Teams@toggle')->name('team.toggle');
+    Gem::post('/teams/toggle/{id}', 'User\Teams@toggle')->middleware('CSRF')->name('team.toggle');
     Gem::get('/teams/{token}/accept', 'User\Teams@accept')->name('team.accept');
 
     Gem::get('/qr/', 'User\QR@index')->name('qr');
@@ -219,7 +217,7 @@ Gem::group($prefix.'/user', function(){
     Gem::post('/qr/{id}/update', 'User\QR@update')->name('qr.update');
     Gem::get('/qr/{id}/delete/{nonce}', 'User\QR@delete')->name('qr.delete');
     Gem::post('/qr/deleteall', 'User\QR@deleteall')->name('qr.deleteall');
-    Gem::get('/qr/{id}/duplicate', 'User\QR@duplicate')->name('qr.duplicate');
+    Gem::post('/qr/{id}/duplicate', 'User\QR@duplicate')->name('qr.duplicate');
     Gem::post('/qr/downloadall', 'User\QR@downloadall')->name('qr.downloadall');
 
     Gem::get('/qr/create/bulk', 'User\QR@createbulk')->name('qr.createbulk');
@@ -236,7 +234,7 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/bio/{id}/update/{block}/delete', 'User\Bio@deleteBlock')->name('bio.delete.block');
     Gem::get('/bio/{id}/delete/{nonce}', 'User\Bio@delete')->name('bio.delete');
     Gem::get('/bio/{id}/default', 'User\Bio@default')->name('bio.default');
-    Gem::get('/bio/{id}/duplicate', 'User\Bio@duplicate')->name('bio.duplicate');
+    Gem::post('/bio/{id}/duplicate', 'User\Bio@duplicate')->name('bio.duplicate');
     Gem::get('/bio/widgetjs', 'User\Bio@widgets')->name('bio.widgetjs');    
     Gem::post('/bio/{id}/update/toggle/{i}', 'User\Bio@toggle')->name('bio.toggle');
     
@@ -305,14 +303,13 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/plans/{id}/edit', 'Admin\Plans@edit')->name('admin.plans.edit');
     Gem::post('/plans/{id}/update', 'Admin\Plans@update')->name('admin.plans.update');
     Gem::get('/plans/sync', 'Admin\Plans@sync')->name('admin.plans.sync');
-    Gem::get('/plans/{id}/toggle', 'Admin\Plans@toggle')->name('admin.plans.toggle');
+    Gem::post('/plans/{id}/toggle', 'Admin\Plans@toggle')->middleware('CSRF')->name('admin.plans.toggle');
     Gem::get('/subscriptions', 'Admin\Membership@subscriptions')->name('admin.subscriptions');
     Gem::get('/subscription/{id}/{markas}', 'Admin\Membership@subscriptionMarkas')->name('admin.subscription.markas');
     Gem::get('/payments', 'Admin\Membership@payments')->name('admin.payments');
     Gem::get('/payments/{id}/invoice','Admin\Membership@invoice')->name('admin.invoice');
     Gem::get('/payments/{id}/delete/{nonce}','Admin\Membership@delete')->name('admin.payments.delete');
     Gem::get('/payments/{id}/{action}','Admin\Membership@markAs')->name('admin.payments.markas');
-    Gem::get('/finance', 'Admin\Finance@index')->name('admin.finance');
 
     // Coupons
     Gem::get('/coupons', 'Admin\Coupons@index')->name('admin.coupons');
@@ -356,8 +353,8 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/links/report/{id}/{action}', 'Admin\Links@reportAction')->name('admin.links.report.action');
     Gem::get('/links/bad', 'Admin\Links@bad')->name('admin.links.bad');
     Gem::get('/links/bad/{id}/cancel', 'Admin\Links@badCancel')->name('admin.links.bad.cancel');
-    Gem::get('/links/{id}/disable', 'Admin\Links@disable')->name('admin.links.disable');
-    Gem::get('/links/{id}/approve', 'Admin\Links@approve')->name('admin.links.approve');
+    Gem::post('/links/{id}/disable', 'Admin\Links@disable')->middleware('CSRF')->name('admin.links.disable');
+    Gem::post('/links/{id}/approve', 'Admin\Links@approve')->middleware('CSRF')->name('admin.links.approve');
     Gem::route(['GET', 'POST'], '/links/import', 'Admin\Links@import')->name('admin.links.import');
     // Users
     Gem::get('/users', 'Admin\Users@index')->name('admin.users');
@@ -373,7 +370,7 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/users/{id}/delete/{nonce}', 'Admin\Users@delete')->name('admin.users.delete');
     Gem::get('/users/{id}/wipe/{nonce}', 'Admin\Users@wipe')->name('admin.users.delete.all');
     Gem::post('/user/delete/all', 'Admin\Users@deleteAll')->name('admin.users.deleteall');
-    Gem::get('/users/{id}/ban', 'Admin\Users@ban')->name('admin.users.ban');
+    Gem::post('/users/{id}/ban', 'Admin\Users@ban')->middleware('CSRF')->name('admin.users.ban');
     Gem::get('/users/{id}/view', 'Admin\Users@view')->name('admin.users.view');
     Gem::post('/user/ban/all', 'Admin\Users@banAll')->name('admin.users.banall');
     Gem::post('/user/email/all', 'Admin\Users@emailAll')->name('admin.users.emailall');
@@ -442,8 +439,8 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::post('/domains/save', 'Admin\Domains@save')->name('admin.domains.save');
     Gem::get('/domains/{id}/edit', 'Admin\Domains@edit')->name('admin.domains.edit');
     Gem::post('/domains/{id}/update', 'Admin\Domains@update')->name('admin.domains.update');
-    Gem::get('/domains/{id}/disable', 'Admin\Domains@disable')->name('admin.domains.disable');
-    Gem::get('/domains/{id}/activate', 'Admin\Domains@activate')->name('admin.domains.activate');
+    Gem::post('/domains/{id}/disable', 'Admin\Domains@disable')->middleware('CSRF')->name('admin.domains.disable');
+    Gem::post('/domains/{id}/activate', 'Admin\Domains@activate')->middleware('CSRF')->name('admin.domains.activate');
     Gem::get('/domains/{id}/pending', 'Admin\Domains@pending')->name('admin.domains.pending');
     Gem::get('/domains/{id}/delete/{nonce}', 'Admin\Domains@delete')->name('admin.domains.delete');
     // FAQS
@@ -556,8 +553,6 @@ Gem::group(appConfig('app.apiroute'), function(){
     Gem::post('/oauth/token', 'API\OAuth@token')->name('api.oauth.token');
 
     Gem::setMiddleware(['Auth@api', 'Throttle', 'CheckDomain']);
-
-    Gem::get('/', 'API\Index@index');
 
     // Account
     Gem::get('/account', 'API\Account@get')->name("api.account.get");
@@ -693,18 +688,6 @@ Gem::get('/{id}/ico', 'Link@icon')->name('link.ico');
 Gem::get('/{id}/qr[/{size}]', 'Link@qr')->name('link.qr');
 Gem::get('/{id}/qr/download/{format}[/{size}]', 'Link@qrDownload')->name('link.qrDownload');
 
+Gem::post('/geo/consent/{alias}', 'Link@geoConsent')->name('link.geoconsent');
+
 Gem::route(['GET', 'POST'], '/{alias}', 'Link@redirect')->name('redirect');
-
-// Discord Bot Routes
-Gem::get('/discord/interaction', 'Discord@interaction')->name('discord.interaction');
-
-// Gem::get('/compile/1a589a9d55e6fff984', function(){
-//     \Core\View::compile([
-//          "frontend/libs/jquery/dist/jquery.min.js",
-//          "frontend/libs/bootstrap/dist/js/bootstrap.bundle.min.js",
-//          "frontend/libs/bootstrap-notify/bootstrap-notify.min.js",
-//          "frontend/libs/svg-injector/dist/svg-injector.min.js",
-//          "frontend/libs/feather-icons/dist/feather.min.js",
-//          "frontend/libs/select2/dist/js/select2.min.js",
-//     ], 'bundle.pack.js');
-// });

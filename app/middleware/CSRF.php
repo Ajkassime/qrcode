@@ -24,10 +24,10 @@ use Core\Helper;
 final class CSRF extends Middleware {
 
 	/**
-	 * Do not un CSRF for these routes
+	 * Do not run CSRF for these routes
 	 * @var array
 	 */
-	protected $_exempt = ['shorten', 'user/qr/preview', 'api/*', 'admin/languages/translate', 'user/bio/'];
+	protected $_exempt = ['shorten', 'user/qr/preview', 'api/*', 'webhook/*', 'admin/languages/translate'];
 	/**
 	 * Error Message
 	 * @var string
@@ -41,6 +41,11 @@ final class CSRF extends Middleware {
 	 */
 	public function handle(Request $request) {
 
+		// Safe HTTP methods without side effects must never be blocked by CSRF
+		if(in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)){
+			return true;
+		}
+
 		// @group Plugin
 		$exempts = \Core\Plugin::dispatch('middleware.csrf.exempt');
 
@@ -48,8 +53,14 @@ final class CSRF extends Middleware {
 		
 		if(self::check($request) === false) return true;
 		
-		if(isset($_SESSION[Helper::CSRFNAME]) && ($_SESSION[Helper::CSRFNAME] == trim($request->_token))) {
-			unset($_SESSION[Helper::CSRFNAME]);
+		$token = $request->_token 
+			?? (isset($_SERVER['HTTP_X_CSRF_TOKEN']) ? clean($_SERVER['HTTP_X_CSRF_TOKEN']) : null)
+			?? (isset($_SERVER['HTTP_X_XSRF_TOKEN']) ? clean($_SERVER['HTTP_X_XSRF_TOKEN']) : null);
+
+		if(isset($_SESSION[Helper::CSRFNAME]) && !empty($token) && hash_equals((string) $_SESSION[Helper::CSRFNAME], trim((string) $token))) {
+			if(!$request->isAjax()){
+				unset($_SESSION[Helper::CSRFNAME]);
+			}
 			return true;
 		}
 

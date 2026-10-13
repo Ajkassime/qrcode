@@ -103,6 +103,33 @@ class Gate {
         return View::with('gates.password')->extend('layouts.auth');
     }
     /**
+     * Browser Geolocation Consent Gate
+     *
+     * @param object $url
+     * @param object|null $user
+     * @return mixed
+     */
+    public static function consentLocation(object $url, $user = null){
+        View::set('title', e('Partager votre localisation'));
+        View::set('description', e('Cette campagne sollicite votre accord pour affiner les statistiques régionales de consultation.'));
+
+        $request = request();
+        $statId = $request->session("last_stat_{$url->id}");
+        $secret = defined('AuthToken') ? AuthToken : 'codex-geo-consent-secret';
+        $randomBytes = function_exists('random_bytes') ? bin2hex(random_bytes(16)) : uniqid('', true);
+        $consentNonce = hash_hmac('sha256', "{$url->id}:{$statId}:{$request->ip()}:{$randomBytes}", $secret);
+
+        $request->session("geoconsent_nonce_{$url->id}", $consentNonce);
+        $request->unset("geoconsent_used_{$url->id}");
+
+        $targetUrl = $url->url;
+        $geocoderInfo = class_exists('\Helpers\GeoLocation')
+            ? \Helpers\GeoLocation::getReverseGeocoderProviderInfo()
+            : ['enabled' => false, 'provider' => 'none', 'provider_name' => null, 'sends_external' => false];
+
+        return View::with('gates.consent', compact('url', 'targetUrl', 'consentNonce', 'geocoderInfo'))->extend('layouts.auth');
+    }
+    /**
      * Direct method
      *
      * @author GemPixel <https://gempixel.com>

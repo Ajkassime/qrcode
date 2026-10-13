@@ -63,7 +63,7 @@
 									<?php if(user()->teamPermission('bio.edit')): ?>
 										<li><a class="dropdown-item" href="#" data-id="<?php echo $bio->id ?>" data-bs-toggle="modal" data-trigger="modalopen" data-bs-target="#channelModal" data-toggle="addtochannel"><i data-feather="package"></i> <?php ee('Add to Channel') ?></a></li>
 										<li><a class="dropdown-item" href="<?php echo route('links.reset', [$bio->urlid, \Core\Helper::nonce('link.reset')]) ?>" data-bs-toggle="modal" data-trigger="modalopen" data-bs-target="#resetModal"><i data-feather="rotate-ccw"></i> <?php ee('Reset Stats') ?></a></li>
-										<li><a class="dropdown-item" href="<?php echo route('bio.duplicate', [$bio->id]) ?>"><i data-feather="copy"></i> <?php ee('Duplicate') ?></a></li>
+										<li><a class="dropdown-item" href="<?php echo route('bio.duplicate', [$bio->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="copy"></i> <?php ee('Duplicate') ?></a></li>
 									<?php endif ?>
 									<?php if(user()->teamPermission('bio.delete')): ?>
 									<li class="dropdown-divider"></li>

@@ -124,11 +124,23 @@ class QRGd {
         return $this;
     }
     /**
+     * Optional label
+     * @var \Endroid\QrCode\Label\Label|null
+     */
+    private $label = null;
+
+    /**
+     * Track unsupported customizations
+     * @var array
+     */
+    private $unsupportedFeatures = [];
+
+    /**
      * Create a QR Code format
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @return void
+     * @return $this
      */
     public function format($format = 'png'){
         
@@ -138,9 +150,12 @@ class QRGd {
         } elseif($format == 'svg'){        
             $this->writer = new SvgWriter();
             $this->extension = "svg";
-        }elseif($format == 'eps'){        
+        } elseif($format == 'eps'){        
             $this->writer = new EpsWriter();
             $this->extension = "eps";
+        } elseif($format == 'webp'){
+            $this->writer = new PngWriter();
+            $this->extension = "webp";
         } else {
             $this->writer = new PngWriter();
             $this->extension = "png";    
@@ -153,77 +168,203 @@ class QRGd {
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @param array $bg
-     * @param array $fg
-     * @return void
+     * @param array|string $fg
+     * @param array|string $bg
+     * @param string|null $frame
+     * @param string|null $eye
+     * @return $this
      */
-    public function color($fg, $bg){
+    public function color($fg, $bg, $frame = null, $eye = null){
 
-        \preg_match('|rgb\((.*)\)|', $fg, $color);
+        \preg_match('|rgb\((.*)\)|', (string) $fg, $color);
         if(isset($color[1])){
             $fgColor = \explode(',', $color[1]);
         } else {
             $fgColor = [0,0,0];
         }
 
-        \preg_match('|rgb\((.*)\)|', $bg, $color);
+        \preg_match('|rgb\((.*)\)|', (string) $bg, $color);
         if(isset($color[1])){
             $bgColor = \explode(',', $color[1]);
         } else {
-            $fgColor = [255,255,255];
+            $bgColor = [255,255,255];
         }
 
-        $this->qrCode->setForegroundColor(new Color($fgColor[0], $fgColor[1], $fgColor[2]))
-                     ->setBackgroundColor(new Color($bgColor[0], $bgColor[1], $bgColor[2]));
+        $this->qrCode->setForegroundColor(new Color((int) $fgColor[0], (int) $fgColor[1], (int) $fgColor[2]))
+                     ->setBackgroundColor(new Color((int) $bgColor[0], (int) $bgColor[1], (int) $bgColor[2]));
 
         return $this;
     }
     /**
-     * Download QR
+     * Gradient fallback
+     *
+     * @param mixed $fg
+     * @param mixed $bg
+     * @param string $type
+     * @param string|null $frame
+     * @param string|null $eye
+     * @return $this
+     */
+    public function gradient($fg, $bg, $type = 'vertical', $frame = null, $eye = null){
+        $primaryFg = is_array($fg) ? ($fg[0] ?? 'rgb(0,0,0)') : $fg;
+        $this->unsupportedFeatures['gradient'] = ['type' => $type];
+        return $this->color($primaryFg, $bg, $frame, $eye);
+    }
+    /**
+     * Check if feature is natively supported by QrGd
+     *
+     * @param string $feature
+     * @return bool
+     */
+    public function supportsCustomization(string $feature): bool {
+        return in_array($feature, ['color', 'logo', 'errorCorrection', 'label', 'format'], true);
+    }
+    /**
+     * Get tracked unsupported features
+     *
+     * @return array
+     */
+    public function getUnsupportedFeatures(): array {
+        return $this->unsupportedFeatures;
+    }
+    /**
+     * Matrix module compatibility stub with tracking
+     *
+     * @param string $matrix
+     * @return $this
+     */
+    public function module($matrix = null){
+        if(!empty($matrix) && $matrix !== 'square'){
+            $this->unsupportedFeatures['module'] = $matrix;
+        }
+        return $this;
+    }
+    /**
+     * Eye compatibility stub with tracking
+     *
+     * @param string $eye
+     * @param string $eyeFrame
+     * @return $this
+     */
+    public function eye($eye = null, $eyeFrame = 'square'){
+        if((!empty($eye) && $eye !== 'square') || (!empty($eyeFrame) && $eyeFrame !== 'square')){
+            $this->unsupportedFeatures['eye'] = ['eye' => $eye, 'frame' => $eyeFrame];
+        }
+        return $this;
+    }
+    /**
+     * Frame compatibility stub with label support
+     *
+     * @param array $frame
+     * @return $this
+     */
+    public function withFrame($frame = null){
+        if(!empty($frame) && is_array($frame)){
+            if(!empty($frame['text']) && class_exists(Label::class)){
+                $this->label = Label::create((string) $frame['text']);
+            }
+            $this->unsupportedFeatures['frame'] = $frame;
+        }
+        return $this;
+    }
+    /**
+     * Punched logo compatibility stub with tracking
+     *
+     * @return $this
+     */
+    public function isPunched(){
+        $this->unsupportedFeatures['punched'] = true;
+        return $this;
+    }
+    /**
+     * Get MimeType
+     *
+     * @return string
+     */
+    public function getMimeType(){
+        $mimes = [
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'svg' => 'image/svg+xml',
+            'pdf' => 'application/pdf',
+            'eps' => 'application/postscript',
+        ];
+        return $mimes[$this->extension ?? 'png'] ?? 'image/png';
+    }
+    /**
+     * Return QR as string without terminating execution
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @return void
+     * @return string
      */
     public function string(){
-        $result = $this->writer->write($this->qrCode, $this->logo);
-        echo $result->getString();
-        exit;        
+        if(!$this->writer){
+            $this->format($this->extension ?? 'png');
+        }
+        $result = $this->writer->write($this->qrCode, $this->logo, $this->label);
+        $data = $result->getString();
+
+        if($this->extension === 'webp'){
+            if(function_exists('imagewebp')){
+                $img = @imagecreatefromstring($data);
+                if($img !== false){
+                    ob_start();
+                    imagewebp($img);
+                    $data = ob_get_clean();
+                    if(PHP_VERSION_ID < 80500){
+                        @imagedestroy($img);
+                    }
+                } else {
+                    throw new \Exception(e('Failed to process image for WebP conversion.'));
+                }
+            } else {
+                throw new \Exception(e('WebP format is not supported on this server.'));
+            }
+        }
+
+        return $data;
     }
     /**
      * Return extension
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.0
-     * @return void
+     * @return string
      */
     public function extension(){    
-        return $this->extension;
+        return $this->extension ?? 'png';
     }
     /**
      * Generate QR
      *
      * @author GemPixel <https://gempixel.com> 
      * @version 6.7
-     * @return void
+     * @return mixed
      */
     public function create($output = 'raw', $file = null){
 
-        $result = $this->writer->write($this->qrCode, $this->logo);
+        $data = $this->string();
 
         if($output == 'file'){
             if(config('cdn') && config('cdn')->enabled){
-                return \Helpers\CDN::factory()->uploadRaw(str_replace(PUB.'/', '', $file), $result->getString(), $result->getMimeType());                
+                return \Helpers\CDN::factory()->uploadRaw(str_replace(PUB.'/', '', $file), $data, $this->getMimeType());                
             }
-            return $result->saveToFile($file);
+            return file_put_contents($file, $data);
         }
         
         if($output == 'uri'){
-            return $result->getDataUri();            
+            return 'data:'.$this->getMimeType().';base64,'.base64_encode($data);            
         }
 
-        header('Content-Type: '.$result->getMimeType());
-        echo $result->getString();
+        if($output == 'raw'){
+            return $data;
+        }
+
+        if(!headers_sent()){
+            header('Content-Type: '.$this->getMimeType());
+        }
+        echo $data;
         exit;
     }    
 

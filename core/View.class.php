@@ -228,7 +228,7 @@ final class View extends Gem {
    */
   public static function assets($file){
 
-    if(CDNASSETS) return CDNASSETS."/{$file}";
+    if(defined('CDNASSETS') && CDNASSETS) return CDNASSETS."/{$file}";
 
     return self::$Config->url."/".self::ASSET."/{$file}";
   }

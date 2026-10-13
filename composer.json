@@ -2,6 +2,7 @@
     "name": "gempixel/framework",
     "type": "project",
     "description": "GemPixel Framework",
+    "license": "proprietary",
     "require": {
         "abraham/twitteroauth": "^3.1",
         "defuse/php-encryption": "^2.2",
