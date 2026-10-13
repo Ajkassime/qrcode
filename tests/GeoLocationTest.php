@@ -12,6 +12,7 @@ class GeoLocationTest {
         self::testRemovalOfFakeBoundariesAndUniqueMadagascarCodes($results);
         self::testProviderPriorityAndAllFiveReverseGeocoders($results);
         self::testSharedCrossProcessCacheExpirationAndQuotas($results);
+        self::testConcurrentCacheCleaningProtectsLockAndQuotas($results);
         self::testMissingAndCoarseGpsAccuracyAndBorderDegradation($results);
         self::testGeographicHierarchyAndGlobalQualityMetrics($results);
         self::testGeoConsentEndpointPrivacyAndExternalFailureResilience($results);
@@ -813,6 +814,81 @@ class GeoLocationTest {
 
         \Helpers\GeoLocation::clearCache();
         @rmdir($tmpCacheDir);
+    }
+
+    public static function testConcurrentCacheCleaningProtectsLockAndQuotas(&$results) {
+        echo "Running GeoLocationTest::testConcurrentCacheCleaningProtectsLockAndQuotas...\n";
+
+        $testCacheDir = sys_get_temp_dir() . '/geo_lock_test_' . uniqid();
+        mkdir($testCacheDir, 0700, true);
+        \Helpers\GeoLocation::setCacheDirectory($testCacheDir);
+
+        // 1. Prepare dummy active quota state file and cached reverse geocoding response
+        $quotaData = json_encode(['requests_total' => 123, 'minute_count' => 12, 'day_count' => 88]);
+        file_put_contents($testCacheDir . '/ratelimit_state.json', $quotaData);
+
+        $cachedResponse = json_encode(['created_at' => time(), 'expires_at' => time() + 3600, 'value' => ['city' => 'Toamasina']]);
+        file_put_contents($testCacheDir . '/revgeo_testkey.json', $cachedResponse);
+
+        // 2. Simulate Worker A actively holding an exclusive lock on ratelimit.lock
+        $lockFile = $testCacheDir . '/ratelimit.lock';
+        $heldFp = fopen($lockFile, 'c+b');
+        self::assert($heldFp !== false, "Concurrent test: lock file successfully created and opened", $results);
+
+        $locked = flock($heldFp, LOCK_EX);
+        self::assert($locked === true, "Worker A acquired exclusive lock on ratelimit.lock", $results);
+
+        $initialStat = fstat($heldFp);
+        $initialIno = $initialStat['ino'] ?? null;
+
+        // 3. Worker B runs ordinary cache cleanup (default $purgeQuotaState = false)
+        \Helpers\GeoLocation::purgeSharedCacheFiles(false);
+
+        $quotaFileExists = file_exists($testCacheDir . '/ratelimit_state.json');
+        $quotaContent = $quotaFileExists ? file_get_contents($testCacheDir . '/ratelimit_state.json') : '';
+        $cachedFileExists = file_exists($testCacheDir . '/revgeo_testkey.json');
+        $lockFileExists = file_exists($lockFile);
+
+        $currentStat = $lockFileExists ? stat($lockFile) : null;
+        $currentIno = $currentStat['ino'] ?? null;
+
+        self::assert(
+            $quotaFileExists && $quotaContent === $quotaData && !$cachedFileExists && $lockFileExists && ($initialIno === null || $currentIno === $initialIno),
+            "Ordinary cache purge clears responses, strictly preserves ratelimit_state.json, and leaves active ratelimit.lock intact on the exact same inode",
+            $results
+        );
+
+        // 4. Worker B attempts hard quota purge ($purgeQuotaState = true) while Worker A STILL holds LOCK_EX
+        \Helpers\GeoLocation::purgeSharedCacheFiles(true);
+
+        $lockStillExistsWhileHeld = file_exists($lockFile);
+        $statWhileHeld = $lockStillExistsWhileHeld ? stat($lockFile) : null;
+        $inoWhileHeld = $statWhileHeld['ino'] ?? null;
+
+        self::assert(
+            $lockStillExistsWhileHeld && ($initialIno === null || $inoWhileHeld === $initialIno),
+            "Hard quota purge refuses to unlink ratelimit.lock while Worker A holds an active lock (prevents POSIX inode split-brain desynchronization)",
+            $results
+        );
+
+        // 5. Worker A finishes and releases the lock
+        flock($heldFp, LOCK_UN);
+        fclose($heldFp);
+
+        // 6. Hard purge when no process holds the lock successfully unlinks ratelimit.lock and resets quota state
+        \Helpers\GeoLocation::purgeSharedCacheFiles(true);
+
+        $lockDeletedWhenIdle = !file_exists($lockFile);
+        $quotaDeletedOnHardPurge = !file_exists($testCacheDir . '/ratelimit_state.json');
+
+        self::assert(
+            $lockDeletedWhenIdle && $quotaDeletedOnHardPurge,
+            "Hard quota purge safely removes idle ratelimit.lock and ratelimit_state.json when no concurrent worker holds a lock",
+            $results
+        );
+
+        \Helpers\GeoLocation::setCacheDirectory(null);
+        @rmdir($testCacheDir);
     }
 
     public static function testMissingAndCoarseGpsAccuracyAndBorderDegradation(&$results) {

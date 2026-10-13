@@ -4,7 +4,7 @@
 - **Pull Request :** [#1](https://github.com/Ajkassime/qrcode/pull/1)
 - **Branche source :** `main`
 - **Branche de travail :** `codex/audit-cleanup-qrcode`
-- **Suite de tests :** **209 / 209 assertions réussies** (0 échec)
+- **Suite de tests :** **253 / 253 assertions réussies** (0 échec)
 
 ---
 
@@ -79,15 +79,41 @@
   3. **Essais en conditions réelles (`--live`) pour l'exploitant :**
      - Nécessitent une clé d'API valide auprès d'un fournisseur pris en charge (ex. OpenCage).
      - Commande : `REVERSE_GEOCODER_API_KEY=votre_cle php scripts/test-worldwide-geocoder.php --live --provider=opencage`
-     - Envoie de véritables requêtes HTTPS aux serveurs du prestataire sélectionné et affiche la charge utile JSON reçue ainsi que le temps de réponse.
+      - Envoie de véritables requêtes HTTPS aux serveurs du prestataire sélectionné et affiche la charge utile JSON reçue ainsi que le temps de réponse.
+
+### Point 7 : Conversion des actions sensibles d'état exposées en GET vers POST avec protection CSRF
+- **Routes sécurisées :**
+  - `/teams/toggle/{id}` (`team.toggle`) : activation / désactivation de membre d'équipe.
+  - `/plans/{id}/toggle` (`admin.plans.toggle`) : activation / désactivation d'un forfait.
+  - `/links/{id}/disable` (`admin.links.disable`) : désactivation d'un lien raccourci / QR code.
+  - `/links/{id}/approve` (`admin.links.approve`) : approbation d'un lien en attente.
+  - `/users/{id}/ban` (`admin.users.ban`) : bannissement d'un utilisateur.
+  - `/domains/{id}/disable` (`admin.domains.disable`) : désactivation d'un domaine personnalisé.
+  - `/domains/{id}/activate` (`admin.domains.activate`) : activation d'un domaine personnalisé.
+- **Architecture de sécurité mise en place :**
+  - **Enregistrement de routage :** Ces actions modificatrices d'état sont désormais enregistrées exclusivement en `Gem::post(...)->middleware('CSRF')`. Toute tentative d'accès via la méthode `GET` est formellement rejetée avec le code HTTP 405 (`METHOD_NOT_ALLOWED`).
+  - **Protection CSRF unifiée :** Le middleware `CSRF` valide systématiquement le jeton de session anti-falsification.
+  - **Composants d'interface (Vues) :** Les boutons d'action dans les vues d'administration et d'équipe (`storage/themes/default/teams/index.php`, `admin/plans/index.php`, `admin/links/view.php`, `admin/partials/links.php`, `admin/domains/index.php`, `admin/index.php`, `admin/search.php`, `admin/users/index.php`) ont été convertis avec les attributs `data-trigger="post" data-token="<?php echo csrf_token() ?>"`.
+  - **Gestionnaire JavaScript unifié :** Ajout de l'écouteur `[data-trigger=post]` dans `public/static/custom.js` et `public/static/custom.min.js` (en plus de `server.js`), assurant que les requêtes POST asynchrones avec jeton CSRF soient déclenchées de manière homogène sur toutes les interfaces (y compris les vues d'administration qui ne chargent que `custom.min.js`).
+  - **Préservation stricte des routes GET légitimes :**
+    - Liens d'invitation et d'activation basés sur jeton sécurisé : `/teams/{token}/accept` et `/user/{id}/verify/{token}` conservent intentionnellement la méthode GET pour permettre aux utilisateurs d'ouvrir directement le lien depuis leur messagerie électronique.
+    - Routes de consultation : `/links/{id}/view`, `/plans`, téléchargements, prévisualisations et redirections restent en GET sans interférence CSRF.
+  - **Tests automatisés :** 13 actions sensibles testées pour le rejet GET (405), l'acceptation POST, et l'exigence du middleware CSRF, accompagnées de tests confirmant la persistance des accès GET légitimes.
+
+### Point 8 : Protection du verrou de synchronisation (`ratelimit.lock`) et isolation des quotas lors des nettoyages concurrents
+- **Problème résolu :** Dans un environnement d'exécution multi-processus POSIX (ex. PHP-FPM), supprimer un fichier de verrouillage (`unlink('ratelimit.lock')`) pendant qu'un autre travailleur PHP détient un verrou actif `flock(LOCK_EX)` crée une scission d'inœuds (*split-brain*). Un processus concurrent entrant recrée alors un nouvel inœud portant le même nom, et les deux processus s'exécutent simultanément en croyant détenir le verrou exclusif. De plus, une purge périodique du cache de réponses ne doit jamais effacer le fichier d'état des quotas réels (`ratelimit_state.json`).
+- **Architecture de protection :**
+  - **Préservation par défaut des quotas :** `GeoLocation::clearCache(bool $clearSharedFiles = true, bool $purgeQuotaState = false)` et `GeoLocation::purgeSharedCacheFiles(bool $purgeQuotaState = false)` n'effacent jamais `ratelimit_state.json` lors des opérations de maintenance de cache ordinaires.
+  - **Vérification non-bloquante avant suppression du verrou :** Lors d'une réinitialisation dure explicite des quotas (`$purgeQuotaState = true`), `ratelimit.lock` n'est supprimé que si une tentative d'acquisition immédiate et non-bloquante (`flock($lockFp, LOCK_EX | LOCK_NB)`) aboutit. Si un travailleur concurrent détient le verrou, l'effacement est annulé et l'inœud actif est intégralement préservé.
+  - **Test unitaire de concurrence :** `testConcurrentCacheCleaningProtectsLockAndQuotas` simule l'acquisition concurrente d'un verrou par un processus tiers (Worker A), vérifie que l'inœud de `ratelimit.lock` reste inchangé pendant les nettoyages, et valide que les fichiers ne sont supprimés qu'une fois le verrou libéré.
 
 ---
 
 ## 2. RÉSULTATS DES TESTS AUTOMATISÉS
 
 - **Script d'exécution :** `php tests/run_tests.php`
-- **Total des assertions exécutées :** **209**
-- **Assertions réussies :** **209**
+- **Total des assertions exécutées :** **253**
+- **Assertions réussies :** **253**
 - **Assertions échouées :** **0**
 - **Vérification syntaxique (`php -l`) :** 100 % des fichiers validés sans erreur.
 - **Environnements validés :** PHP 8.1, PHP 8.2, PHP 8.3 (Matrice GitHub Actions).
@@ -100,7 +126,8 @@
 | :--- | :--- | :--- |
 | **MaxMind GeoLite2-City** | Base chargée localement (`storage/app/GeoLite2-City.mmdb`) | Tâche cron de mise à jour avec `MAXMIND_LICENSE_KEY` |
 | **Géocodage inverse GPS** | 5 adaptateurs intégrés (OpenCage, BigDataCloud, Nominatim, Google, Mapbox) | Renseigner `REVERSE_GEOCODER_ENABLED=true` et `REVERSE_GEOCODER_API_KEY` dans `.env` ou `www.conf` |
-| **Sécurité des quotas** | Verrouillage dédié `ratelimit.lock`, écriture atomique tempfile + rename, mode fail-closed sur fichier 0-octet et corruption | S'assurer que `storage/cache/geolocation/` est accessible en lecture/écriture par le pool PHP-FPM (`www-data`) |
+| **Sécurité des quotas & verrous** | Verrouillage dédié `ratelimit.lock`, écriture atomique tempfile + rename, mode fail-closed, protection d'inœud non-bloquante contre le split-brain | S'assurer que `storage/cache/geolocation/` est accessible en lecture/écriture par le pool PHP-FPM (`www-data`) |
+| **Protection CSRF & Actions sensibles** | Conversion de 7 routes critiques en POST + CSRF, rejet GET (405), gestionnaire JS unifié | Aucune dépendance externe, actif immédiatement |
 | **Cycle de vie HTTP** | Test d'intégration complet validant le flux QR -> Consentement -> Redirection WhatsApp | Aucun composant tiers nécessaire |
 | **Protection des secrets** | `.gitignore` durci, masquage de clé, lecture d'environnement sécurisée | Définir des permissions `chmod 600 .env` sur le serveur de production |
 | **Mandataires inverses** | Filtrage `TRUSTED_PROXY_IPS` et support Cloudflare | Configurer `TRUSTED_PROXY_IPS` si utilisation d'un reverse proxy, et `TRUST_CLOUDFLARE_PROXY=true` si derrière Cloudflare |

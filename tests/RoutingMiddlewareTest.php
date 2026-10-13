@@ -99,6 +99,13 @@ class RoutingMiddlewareTest {
             'links.private',
             'qr.duplicate',
             'bio.duplicate',
+            'team.toggle',
+            'admin.plans.toggle',
+            'admin.links.disable',
+            'admin.links.approve',
+            'admin.users.ban',
+            'admin.domains.disable',
+            'admin.domains.activate',
         ];
 
         foreach ($mutatingActionNames as $name) {
@@ -176,5 +183,19 @@ class RoutingMiddlewareTest {
             "Batch QR download route exists, uses POST, and enforces CSRF",
             $results
         );
+
+        // 5. Legitimate token invitation and email activation routes must remain GET
+        $teamAccept = $routes['team.accept'] ?? null;
+        self::assert($teamAccept !== null && in_array('GET', (array) $teamAccept['method']), "Token invitation route /teams/{token}/accept exists and uses GET", $results);
+
+        $userVerify = $routes['admin.users.verify'] ?? null;
+        self::assert($userVerify !== null && in_array('GET', (array) $userVerify['method']), "Token verification route /user/{id}/verify/{token} exists and uses GET", $results);
+
+        // 6. Legitimate administrative consultation routes must remain GET
+        $linksView = $routes['admin.links.view'] ?? null;
+        self::assert($linksView !== null && in_array('GET', (array) $linksView['method']), "Inspection route /links/{id}/view exists and uses GET", $results);
+
+        $plansIndex = $routes['admin.plans'] ?? null;
+        self::assert($plansIndex !== null && in_array('GET', (array) $plansIndex['method']), "Listing route /plans exists and uses GET", $results);
     }
 }

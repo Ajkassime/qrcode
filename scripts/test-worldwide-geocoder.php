@@ -46,7 +46,7 @@ if (!is_dir($isolatedTempDir)) {
 
 // Set custom cache dir BEFORE calling any clearCache or resolution
 \Helpers\GeoLocation::setCacheDirectory($isolatedTempDir);
-\Helpers\GeoLocation::clearCache(true);
+\Helpers\GeoLocation::clearCache(true, true);
 
 // Register shutdown handler to purge isolated temp directory and restore default
 register_shutdown_function(function () use ($isolatedTempDir) {
@@ -252,7 +252,7 @@ foreach ($referenceCoordinates as $label => $c) {
 
 // 2. Failure Case Test (HTTP 500 / Timeout)
 if ($simFailure || !$liveMode) {
-    \Helpers\GeoLocation::clearCache(true);
+    \Helpers\GeoLocation::clearCache(true, true);
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'  => true,
         'provider' => $provider,
@@ -275,7 +275,7 @@ if ($simFailure || !$liveMode) {
 
 // 3. Shared Cross-Process Quota Exhaustion Test
 if ($simQuota || !$liveMode) {
-    \Helpers\GeoLocation::clearCache(true);
+    \Helpers\GeoLocation::clearCache(true, true);
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'                 => true,
         'provider'                => 'opencage',
@@ -301,7 +301,7 @@ if ($simQuota || !$liveMode) {
 
 // 4. Fail-Closed Quota Storage Protection Test
 if ($simStorageError || !$liveMode) {
-    \Helpers\GeoLocation::clearCache(true);
+    \Helpers\GeoLocation::clearCache(true, true);
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'  => true,
         'provider' => 'opencage',
@@ -330,7 +330,7 @@ if ($simStorageError || !$liveMode) {
 
 // 5. Full End-to-End QR, Consent, Stats & WhatsApp Redirection Test
 if ($whatsappCheck || !$liveMode) {
-    \Helpers\GeoLocation::clearCache(true);
+    \Helpers\GeoLocation::clearCache(true, true);
     \Helpers\GeoLocation::setReverseGeocoderConfig([
         'enabled'  => true,
         'provider' => 'opencage',

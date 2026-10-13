@@ -206,7 +206,7 @@ Gem::group($prefix.'/user', function(){
     Gem::get('/teams/{id}/edit', 'User\Teams@edit')->name('team.edit');
     Gem::post('/teams/{id}/update', 'User\Teams@update')->name('team.update');
     Gem::get('/teams/switch/{token}', 'User\Teams@switch')->name('team.switch');
-    Gem::get('/teams/toggle/{id}', 'User\Teams@toggle')->name('team.toggle');
+    Gem::post('/teams/toggle/{id}', 'User\Teams@toggle')->middleware('CSRF')->name('team.toggle');
     Gem::get('/teams/{token}/accept', 'User\Teams@accept')->name('team.accept');
 
     Gem::get('/qr/', 'User\QR@index')->name('qr');
@@ -303,7 +303,7 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/plans/{id}/edit', 'Admin\Plans@edit')->name('admin.plans.edit');
     Gem::post('/plans/{id}/update', 'Admin\Plans@update')->name('admin.plans.update');
     Gem::get('/plans/sync', 'Admin\Plans@sync')->name('admin.plans.sync');
-    Gem::get('/plans/{id}/toggle', 'Admin\Plans@toggle')->name('admin.plans.toggle');
+    Gem::post('/plans/{id}/toggle', 'Admin\Plans@toggle')->middleware('CSRF')->name('admin.plans.toggle');
     Gem::get('/subscriptions', 'Admin\Membership@subscriptions')->name('admin.subscriptions');
     Gem::get('/subscription/{id}/{markas}', 'Admin\Membership@subscriptionMarkas')->name('admin.subscription.markas');
     Gem::get('/payments', 'Admin\Membership@payments')->name('admin.payments');
@@ -353,8 +353,8 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/links/report/{id}/{action}', 'Admin\Links@reportAction')->name('admin.links.report.action');
     Gem::get('/links/bad', 'Admin\Links@bad')->name('admin.links.bad');
     Gem::get('/links/bad/{id}/cancel', 'Admin\Links@badCancel')->name('admin.links.bad.cancel');
-    Gem::get('/links/{id}/disable', 'Admin\Links@disable')->name('admin.links.disable');
-    Gem::get('/links/{id}/approve', 'Admin\Links@approve')->name('admin.links.approve');
+    Gem::post('/links/{id}/disable', 'Admin\Links@disable')->middleware('CSRF')->name('admin.links.disable');
+    Gem::post('/links/{id}/approve', 'Admin\Links@approve')->middleware('CSRF')->name('admin.links.approve');
     Gem::route(['GET', 'POST'], '/links/import', 'Admin\Links@import')->name('admin.links.import');
     // Users
     Gem::get('/users', 'Admin\Users@index')->name('admin.users');
@@ -370,7 +370,7 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::get('/users/{id}/delete/{nonce}', 'Admin\Users@delete')->name('admin.users.delete');
     Gem::get('/users/{id}/wipe/{nonce}', 'Admin\Users@wipe')->name('admin.users.delete.all');
     Gem::post('/user/delete/all', 'Admin\Users@deleteAll')->name('admin.users.deleteall');
-    Gem::get('/users/{id}/ban', 'Admin\Users@ban')->name('admin.users.ban');
+    Gem::post('/users/{id}/ban', 'Admin\Users@ban')->middleware('CSRF')->name('admin.users.ban');
     Gem::get('/users/{id}/view', 'Admin\Users@view')->name('admin.users.view');
     Gem::post('/user/ban/all', 'Admin\Users@banAll')->name('admin.users.banall');
     Gem::post('/user/email/all', 'Admin\Users@emailAll')->name('admin.users.emailall');
@@ -439,8 +439,8 @@ Gem::group(appConfig('app.adminroute'), function(){
     Gem::post('/domains/save', 'Admin\Domains@save')->name('admin.domains.save');
     Gem::get('/domains/{id}/edit', 'Admin\Domains@edit')->name('admin.domains.edit');
     Gem::post('/domains/{id}/update', 'Admin\Domains@update')->name('admin.domains.update');
-    Gem::get('/domains/{id}/disable', 'Admin\Domains@disable')->name('admin.domains.disable');
-    Gem::get('/domains/{id}/activate', 'Admin\Domains@activate')->name('admin.domains.activate');
+    Gem::post('/domains/{id}/disable', 'Admin\Domains@disable')->middleware('CSRF')->name('admin.domains.disable');
+    Gem::post('/domains/{id}/activate', 'Admin\Domains@activate')->middleware('CSRF')->name('admin.domains.activate');
     Gem::get('/domains/{id}/pending', 'Admin\Domains@pending')->name('admin.domains.pending');
     Gem::get('/domains/{id}/delete/{nonce}', 'Admin\Domains@delete')->name('admin.domains.delete');
     // FAQS

@@ -453,11 +453,16 @@ class GeoLocation {
     }
 
     /**
-     * Clear resolution caches, shared cache files, and mocks
+     * Clear resolution caches, shared cache files, and mocks.
+     * Ordinary cache clearing preserves active quota counters (ratelimit_state.json) and
+     * preserves the shared synchronization lock (ratelimit.lock) to prevent split-brain concurrency.
+     *
+     * @param bool $clearSharedFiles Whether to delete shared resolution cache files from disk
+     * @param bool $purgeQuotaState Whether to also delete active quota counters (default: false to preserve quotas)
      */
-    public static function clearCache(bool $clearSharedFiles = true): void {
+    public static function clearCache(bool $clearSharedFiles = true, bool $purgeQuotaState = false): void {
         if ($clearSharedFiles) {
-            self::purgeSharedCacheFiles();
+            self::purgeSharedCacheFiles($purgeQuotaState);
         }
         self::$memoryCache = [];
         self::$reverseGeoCache = [];
@@ -491,9 +496,17 @@ class GeoLocation {
     }
 
     /**
-     * Purge shared cache files and rate-limit state from disk
+     * Purge shared cache files from disk with strict concurrency lock protection
+     *
+     * GUARANTEES:
+     * 1. Ordinary cache cleanup ($purgeQuotaState = false) NEVER deletes ratelimit_state.json,
+     *    protecting live production quota accounting.
+     * 2. Synchronization lock: ratelimit.lock is NEVER deleted during ordinary cleanup.
+     *    Even during full hard reset ($purgeQuotaState = true), ratelimit.lock is NEVER deleted
+     *    if any concurrent process holds or waits on it (LOCK_EX | LOCK_NB check), preventing
+     *    POSIX split-brain inode desynchronization.
      */
-    public static function purgeSharedCacheFiles(): void {
+    public static function purgeSharedCacheFiles(bool $purgeQuotaState = false): void {
         $dir = self::getCacheDirectory();
         if (!is_dir($dir)) {
             return;
@@ -501,6 +514,10 @@ class GeoLocation {
         $files = @glob($dir . '/*.json');
         if (is_array($files)) {
             foreach ($files as $file) {
+                // Protect active quotas: ratelimit_state.json must NEVER be erased during ordinary cache clearing
+                if (!$purgeQuotaState && basename($file) === 'ratelimit_state.json') {
+                    continue;
+                }
                 @unlink($file);
             }
         }
@@ -510,8 +527,19 @@ class GeoLocation {
                 @unlink($tf);
             }
         }
-        if (file_exists($dir . '/ratelimit.lock')) {
-            @unlink($dir . '/ratelimit.lock');
+
+        // Only attempt to remove ratelimit.lock if explicitly performing a hard quota purge,
+        // and ONLY if no other process currently holds a lock on it.
+        if ($purgeQuotaState && file_exists($dir . '/ratelimit.lock')) {
+            $lockFp = @fopen($dir . '/ratelimit.lock', 'c+b');
+            if ($lockFp) {
+                if (@flock($lockFp, LOCK_EX | LOCK_NB)) {
+                    // Lock successfully acquired without blocking: no other concurrent process is using it
+                    @unlink($dir . '/ratelimit.lock');
+                    @flock($lockFp, LOCK_UN);
+                }
+                @fclose($lockFp);
+            }
         }
     }
 

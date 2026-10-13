@@ -7,9 +7,9 @@
                     <li><a class="dropdown-item" href="<?php echo route('stats', [$url->id]) ?>"><i data-feather="bar-chart-2"></i> <?php ee('Statistics') ?></span></a></li>
                     <li><a class="dropdown-item" href="<?php echo route('admin.links.edit', [$url->id]) ?>"><i data-feather="edit"></i> <?php ee('Edit') ?></span></a></li>
                     <?php if(!$url->status): ?>
-                        <li><a class="dropdown-item" href="<?php echo route('admin.links.approve', [$url->id]) ?>"><i data-feather="check-circle"></i> <?php ee('Approve') ?></span></a></li>
+                        <li><a class="dropdown-item" href="<?php echo route('admin.links.approve', [$url->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="check-circle"></i> <?php ee('Approve') ?></span></a></li>
                     <?php else: ?>
-                        <li><a class="dropdown-item" href="<?php echo route('admin.links.disable', [$url->id]) ?>"><i data-feather="x-circle"></i> <?php ee('Disable') ?></span></a></li>
+                        <li><a class="dropdown-item" href="<?php echo route('admin.links.disable', [$url->id]) ?>" data-trigger="post" data-token="<?php echo csrf_token() ?>"><i data-feather="x-circle"></i> <?php ee('Disable') ?></span></a></li>
                     <?php endif ?>
                     <?php if($url->userid): ?>
                         <li><a class="dropdown-item" href="<?php echo route('admin.users.view', [$url->userid]) ?>"><i data-feather="user"></i> <?php ee('View User') ?></span></a></li>
