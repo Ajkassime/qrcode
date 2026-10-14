@@ -1533,6 +1533,8 @@ ROUTER;
             curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_HEADER, true);
+            curl_setopt($ch, CURLOPT_PROXY, '');
+            curl_setopt($ch, CURLOPT_NOPROXY, '127.0.0.1,localhost');
             curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieJar);
             curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieJar);
             $body1 = curl_exec($ch);
@@ -1568,6 +1570,8 @@ ROUTER;
             $ch2 = curl_init("http://127.0.0.1:{$port}/geo/consent/wa-qr-http");
             curl_setopt($ch2, CURLOPT_USERAGENT, $userAgent);
             curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch2, CURLOPT_PROXY, '');
+            curl_setopt($ch2, CURLOPT_NOPROXY, '127.0.0.1,localhost');
             curl_setopt($ch2, CURLOPT_POST, true);
             curl_setopt($ch2, CURLOPT_POSTFIELDS, $payload);
             if ($sessionCookie !== '') {

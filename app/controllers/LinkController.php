@@ -97,11 +97,26 @@ class Link {
      */
     public function redirect(Request $request, string $alias){
 
+		// Module 1B: Anti-Bot & Scraper Protection
+		$botAnalysis = class_exists('\Helpers\BotProtection')
+			? \Helpers\BotProtection::analyze($request)
+			: ['type' => 'human', 'is_preview' => false];
+
+		if ($botAnalysis['type'] === 'bad_bot') {
+			return \Helpers\BotProtection::handleBadBot();
+		}
+
 		// @group Plugin: Pre-redirect checks or complete override
 		Plugin::dispatch('link.preredirect', $alias);
 
 		if(!$url = $this->getURL($request, $alias)){
 			return $this->notFound($request);
+		}
+
+		// Module 1B: Serve clean OpenGraph metadata for social previews (WhatsApp, Meta) without counting fake scans or geocoding
+		if (!empty($botAnalysis['is_preview'])) {
+			if (!$url->status) return Gate::inactive();
+			return \Helpers\BotProtection::handleSocialPreview($url);
 		}
 
 		// Plugin: Take control of redirect
@@ -320,6 +335,11 @@ class Link {
 		// Optional Campaign Geo Consent Check (disabled by default, 0ms penalty if not enabled)
 		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}")){
 			return Gate::consentLocation($url, $user);
+		}
+
+		// Module 1A: In-App Browser Breakout (Optional per-link, disabled by default)
+		if(class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::shouldBreakout($url, $request)){
+			return \Helpers\InAppBreakout::renderBreakoutPage($url, $request);
 		}
 
 		if($url->qrid){
