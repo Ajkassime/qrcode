@@ -311,8 +311,8 @@ trait Links {
             $options['inapp_breakout'] = true;
         }
 
-        if(!empty($request->bot_protection)){
-            $options['bot_protection'] = clean($request->bot_protection);
+        if(isset($request->bot_protection)){
+            $options['bot_protection'] = !empty($request->bot_protection);
         }
 
         // @group Plugin
@@ -752,10 +752,8 @@ trait Links {
             unset($options['inapp_breakout']);
         }
 
-        if(!empty($request->bot_protection)){
-            $options['bot_protection'] = clean($request->bot_protection);
-        } else {
-            unset($options['bot_protection']);
+        if(isset($request->bot_protection)){
+            $options['bot_protection'] = !empty($request->bot_protection);
         }
 
         // Generate formatted list of parameters

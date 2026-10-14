@@ -100,17 +100,28 @@ class Link {
 		// Module 1B: Anti-Bot & Scraper Protection
 		$botAnalysis = class_exists('\Helpers\BotProtection')
 			? \Helpers\BotProtection::analyze($request)
-			: ['type' => 'human', 'is_preview' => false];
-
-		if ($botAnalysis['type'] === 'bad_bot') {
-			return \Helpers\BotProtection::handleBadBot();
-		}
+			: ['type' => 'human', 'is_preview' => false, 'count_stat' => true, 'allow_geocoding' => true];
 
 		// @group Plugin: Pre-redirect checks or complete override
 		Plugin::dispatch('link.preredirect', $alias);
 
 		if(!$url = $this->getURL($request, $alias)){
+			if (($botAnalysis['type'] ?? '') === 'bad_bot') {
+				return \Helpers\BotProtection::handleBadBot();
+			}
 			return $this->notFound($request);
+		}
+
+		$options = null;
+		if(!empty($url->options)) {
+			$options = is_array($url->options) ? $url->options : json_decode((string) $url->options, true);
+		}
+
+		// Bot Protection configuration for this link (defaults to true)
+		$botProtectionEnabled = !isset($options['bot_protection']) || !empty($options['bot_protection']);
+
+		if ($botProtectionEnabled && ($botAnalysis['type'] ?? '') === 'bad_bot') {
+			return \Helpers\BotProtection::handleBadBot();
 		}
 
 		// Plugin: Take control of redirect
@@ -226,12 +237,15 @@ class Link {
 		// Module 1B: Serve clean OpenGraph metadata for legitimate social preview crawlers (WhatsApp, Facebook, Twitter, Telegram)
 		// Crucial confidentiality guarantee: Delivered ONLY after password, expiration, status and security gates have passed.
 		// Returns before updateStats() so no human scan count and no paid geocoding are consumed.
-		if (!empty($botAnalysis['is_preview'])) {
+		if ($botProtectionEnabled && !empty($botAnalysis['is_preview'])) {
 			return \Helpers\BotProtection::handleSocialPreview($url);
 		}
 
-		// Update Stats
-		$this->updateStats($request, $url, $user);
+		// Update Stats: ONLY for human visitors or when botAnalysis explicitly allows counting stats
+		// Legitimate search engines (Googlebot, Bingbot) and preview crawlers NEVER increment commercial scan counts
+		if (!empty($botAnalysis['count_stat']) || !$botProtectionEnabled) {
+			$this->updateStats($request, $url, $user);
+		}
 
 		if($options && isset($options['rotators'])) {
 			$rotators = [];
@@ -259,8 +273,8 @@ class Link {
 
 		}
 
-		// Check if URL is geo targeted
-		if(!empty($url->location) && config("geotarget")){
+		// Check if URL is geo targeted (only if geocoding is permitted for this client)
+		if(!empty($url->location) && config("geotarget") && (!empty($botAnalysis['allow_geocoding']) || !$botProtectionEnabled)){
 
 			$geo = $request->country();
 
@@ -328,22 +342,25 @@ class Link {
 			}
 		}
 
-		// Forward queries if any
-		if($request->query()){
-			if(strpos($url->url, "?")){
-				$url->url = $url->url."&".http_build_query($request->query());
-			}else{
-				$url->url = $url->url."?".http_build_query($request->query());
+		// Forward queries if any (excluding internal parameters such as _breakout)
+		if($queries = $request->query()){
+			if(is_array($queries)){
+				unset($queries['_breakout']);
+			}
+			if(!empty($queries)){
+				$separator = (strpos($url->url, "?") !== false) ? "&" : "?";
+				$url->url = $url->url . $separator . http_build_query($queries);
 			}
 		}
 
 		// Optional Campaign Geo Consent Check (disabled by default, 0ms penalty if not enabled)
-		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}")){
+		// Automated crawlers and preview bots are never prompted for browser geolocation consent
+		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}") && (empty($botAnalysis['is_bot']) || !$botProtectionEnabled)){
 			return Gate::consentLocation($url, $user);
 		}
 
 		// Module 1A: In-App Browser Breakout (Optional per-link, disabled by default)
-		if(class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::shouldBreakout($url, $request)){
+		if((empty($botAnalysis['is_bot']) || !$botProtectionEnabled) && class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::shouldBreakout($url, $request)){
 			return \Helpers\InAppBreakout::renderBreakoutPage($url, $request);
 		}
 
@@ -758,6 +775,8 @@ class Link {
 		$url->parameters = $url->parameters && $url->parameters != "null" ? json_decode($url->parameters, true) : [];
 		$url->pixels = $url->pixels && $url->pixels != "null" ? explode(',', $url->pixels) : [];
 		$url->deeplink = $options['deeplink'] ?? [];
+		$url->inapp_breakout = !empty($options['inapp_breakout']);
+		$url->bot_protection = !isset($options['bot_protection']) || !empty($options['bot_protection']);
 
 		$channels = [];
 

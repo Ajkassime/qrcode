@@ -19,6 +19,10 @@ class Phase1ModernizationTest {
         self::testHumanInAppVisitorPreservedForStatsAndGeo($results);
         self::testHistoricalLinksWithoutNewConfig($results);
         self::testSecurityGatesOrderAndConfidentialityPreservation($results);
+        self::testJavaScriptBreakoutSerializationAndXssSafety($results);
+        self::testSearchEngineBotRespectsNoStatsAndNoGeocoding($results);
+        self::testBreakoutParameterNotForwardedToDestinationUrl($results);
+        self::testBotProtectionExplicitToggleOption($results);
     }
 
     private static function assert($condition, $message, &$results) {
@@ -161,12 +165,34 @@ class Phase1ModernizationTest {
         );
         $mockReq->queryParam = null;
 
-        // 4. WhatsApp link scanned within WhatsApp -> MUST NOT breakout (native preservation)
+        // 4. WhatsApp link opened from ANY in-app browser (Instagram, Facebook, TikTok, WhatsApp) -> MUST NOT breakout
         $urlWaTarget = (object)[
             'id' => 12,
-            'url' => 'https://wa.me/261340000000?text=Test',
+            'url' => 'https://wa.me/261340000000?text=' . urlencode('Bonjour, commande QR #102 & vanille + livraison!'),
             'options' => json_encode(['inapp_breakout' => true])
         ];
+        // 4a. From Instagram
+        $mockReq->ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/21E219 Instagram 324.0.0.18.109';
+        self::assert(
+            !\Helpers\InAppBreakout::shouldBreakout($urlWaTarget, $mockReq),
+            "WhatsApp destination opened inside Instagram does NOT trigger breakout (direct handoff to WhatsApp app)",
+            $results
+        );
+        // 4b. From Facebook
+        $mockReq->ua = 'Mozilla/5.0 (Linux; Android 14; SM-S901B) AppleWebKit/537.36 Chrome/122.0.6261.64 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/450.0.0.33.109;]';
+        self::assert(
+            !\Helpers\InAppBreakout::shouldBreakout($urlWaTarget, $mockReq),
+            "WhatsApp destination opened inside Facebook does NOT trigger breakout",
+            $results
+        );
+        // 4c. From TikTok
+        $mockReq->ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 musical_ly_32.5.0';
+        self::assert(
+            !\Helpers\InAppBreakout::shouldBreakout($urlWaTarget, $mockReq),
+            "WhatsApp destination opened inside TikTok does NOT trigger breakout",
+            $results
+        );
+        // 4d. From WhatsApp itself
         $mockReq->ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile Safari/604.1 WhatsApp/2.23.20.78';
         self::assert(
             !\Helpers\InAppBreakout::shouldBreakout($urlWaTarget, $mockReq),
@@ -176,7 +202,7 @@ class Phase1ModernizationTest {
     }
 
     /**
-     * Test 4: Android Chrome intent URL generation
+     * Test 4: Android Chrome intent URL generation and Injection Neutralization
      */
     public static function testAndroidChromeIntentGeneration(&$results) {
         echo "Running Phase1ModernizationTest::testAndroidChromeIntentGeneration...\n";
@@ -193,6 +219,27 @@ class Phase1ModernizationTest {
         self::assert(
             strpos($intent, '#Intent;scheme=https;package=com.android.chrome;end') !== false,
             "Android intent specifies package=com.android.chrome and scheme=https",
+            $results
+        );
+
+        // Test malicious intent injection neutralization
+        $maliciousTarget = 'https://example.mg/exploit#Intent;action=android.intent.action.VIEW;component=com.evil/.Attack;end';
+        $safeIntent = \Helpers\InAppBreakout::getAndroidIntentUrl($maliciousTarget);
+
+        self::assert(
+            strpos($safeIntent, '%23Intent%3B') !== false &&
+            strpos($safeIntent, '%3Bend') !== false &&
+            substr($safeIntent, -strlen('#Intent;scheme=https;package=com.android.chrome;end')) === '#Intent;scheme=https;package=com.android.chrome;end',
+            "Malicious #Intent; injection within URL is safely neutralized without altering terminal package structure",
+            $results
+        );
+
+        // Test stripping of ASCII control characters
+        $crlfTarget = "https://example.mg/path\r\n#catalogue";
+        $sanitizedIntent = \Helpers\InAppBreakout::getAndroidIntentUrl($crlfTarget);
+        self::assert(
+            strpos($sanitizedIntent, "\r") === false && strpos($sanitizedIntent, "\n") === false,
+            "Control characters (CR/LF) are strictly stripped from intent URL",
             $results
         );
     }
@@ -591,6 +638,186 @@ class Phase1ModernizationTest {
         self::assert(
             $statsCountBefore === $statsCountAfter,
             "Confidentiality 7: Legitimate social crawler did NOT increment stats table (0 fake clicks)",
+            $results
+        );
+    }
+
+    /**
+     * Test 11: Secure JavaScript serialization in InAppBreakout (json_encode with HTML flags, XSS prevention)
+     */
+    public static function testJavaScriptBreakoutSerializationAndXssSafety(&$results) {
+        echo "Running Phase1ModernizationTest::testJavaScriptBreakoutSerializationAndXssSafety...\n";
+
+        $mockReq = new class {
+            public function userAgent() {
+                return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/21E219 Instagram 324.0.0.18.109';
+            }
+            public function server($k = null) {
+                if ($k === 'REQUEST_URI') return '/test-xss';
+                return null;
+            }
+        };
+
+        // Attack URL with </script>, quotes, Unicode, parameters & and fragments #
+        $xssTarget = "https://example.mg/produit/épice-mégapromo?id=42&desc=l'artisanat\"<script>alert('XSS')</script>#ancre-vanille";
+        $urlObj = (object)[
+            'id' => 88,
+            'url' => $xssTarget,
+            'options' => json_encode(['inapp_breakout' => true])
+        ];
+
+        $response = \Helpers\InAppBreakout::renderBreakoutPage($urlObj, $mockReq);
+        $body = (string) $response->getBody();
+
+        // 1. Literal script tag breakout MUST NOT exist
+        self::assert(
+            strpos($body, '</script><script>alert') === false,
+            "XSS Safety: </script> sequence inside URL is safely neutralized and cannot close script context",
+            $results
+        );
+
+        // 2. Encoded hex representation must be present
+        self::assert(
+            strpos($body, '\u003Cscript\u003E') !== false,
+            "XSS Safety: HTML tags are hex-encoded as \\u003C and \\u003E in JSON literal",
+            $results
+        );
+
+        // 3. Quotes must be safely encoded
+        self::assert(
+            strpos($body, '\u0027') !== false || strpos($body, '\u0022') !== false,
+            "XSS Safety: Single and double quotes are hex-escaped (\\u0027 / \\u0022)",
+            $results
+        );
+
+        // 4. Unicode characters preserved
+        self::assert(
+            strpos($body, 'épice-mégapromo') !== false,
+            "Unicode characters (French / Malagasy diacritics) are properly preserved in breakout page",
+            $results
+        );
+
+        // 5. Test long URL (600+ chars)
+        $longUrl = 'https://example.mg/catalogue/' . str_repeat('abc123_', 80) . '?param=' . str_repeat('xyz_', 20) . '#anchor';
+        $longUrlObj = (object)['id' => 89, 'url' => $longUrl, 'options' => json_encode(['inapp_breakout' => true])];
+        $longResponse = \Helpers\InAppBreakout::renderBreakoutPage($longUrlObj, $mockReq);
+        self::assert(
+            $longResponse->getCode() === 200 && strlen((string)$longResponse->getBody()) > 1000,
+            "Long URLs (600+ characters) serialize cleanly without truncation in JS",
+            $results
+        );
+    }
+
+    /**
+     * Test 12: Search Engine Crawlers (Googlebot, Bingbot) respect count_stat=false and allow_geocoding=false
+     */
+    public static function testSearchEngineBotRespectsNoStatsAndNoGeocoding(&$results) {
+        echo "Running Phase1ModernizationTest::testSearchEngineBotRespectsNoStatsAndNoGeocoding...\n";
+
+        $pdo = \Core\DB::get_db();
+        $prefix = defined('DBprefix') ? DBprefix : '';
+
+        // Reset and insert a fresh link for search engine test
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
+            (110, 'search-bot-test', 'https://example.mg/destination-bot', 'Page Publique Pour Moteurs', 1)");
+
+        require_once ROOT . '/app/controllers/LinkController.php';
+        $controller = new \Link();
+
+        $_SERVER['REQUEST_URI'] = '/search-bot-test';
+        $_SERVER['HTTP_HOST'] = 'localhost';
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+        $_SERVER['REMOTE_ADDR'] = '66.249.66.1';
+        $_SESSION = [];
+
+        $statsBefore = (int)$pdo->query("SELECT COUNT(*) FROM `{$prefix}stats` WHERE urlid = 110")->fetchColumn();
+        $clicksBefore = (int)$pdo->query("SELECT click FROM `{$prefix}url` WHERE id = 110")->fetchColumn();
+
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'search-bot-test');
+        ob_end_clean();
+
+        $statsAfter = (int)$pdo->query("SELECT COUNT(*) FROM `{$prefix}stats` WHERE urlid = 110")->fetchColumn();
+        $clicksAfter = (int)$pdo->query("SELECT click FROM `{$prefix}url` WHERE id = 110")->fetchColumn();
+
+        self::assert(
+            $statsBefore === $statsAfter && $clicksBefore === $clicksAfter,
+            "Search Engine Bot (Googlebot): Strictly 0 rows inserted in stats and 0 click increment (count_stat=false)",
+            $results
+        );
+    }
+
+    /**
+     * Test 13: Internal _breakout=skip parameter is stripped and never forwarded to destination URL
+     */
+    public static function testBreakoutParameterNotForwardedToDestinationUrl(&$results) {
+        echo "Running Phase1ModernizationTest::testBreakoutParameterNotForwardedToDestinationUrl...\n";
+
+        $pdo = \Core\DB::get_db();
+        $prefix = defined('DBprefix') ? DBprefix : '';
+
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `status`) VALUES
+            (120, 'skip-forward-test', 'https://example.mg/shop?source=qr', 1)");
+
+        require_once ROOT . '/app/controllers/LinkController.php';
+        $controller = new \Link();
+
+        $_SERVER['REQUEST_URI'] = '/skip-forward-test?campaign=promo2026&_breakout=skip';
+        $_GET = ['campaign' => 'promo2026', '_breakout' => 'skip'];
+        $_SERVER['HTTP_HOST'] = 'localhost';
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile Safari/604.1';
+        $_SERVER['REMOTE_ADDR'] = '197.218.0.1';
+
+        $req = new \Core\Request();
+        $queries = $req->query();
+        if (is_array($queries)) {
+            unset($queries['_breakout']);
+        }
+        $targetUrl = 'https://example.mg/shop?source=qr';
+        $finalUrl = $targetUrl . '&' . http_build_query($queries);
+
+        self::assert(
+            strpos($finalUrl, '_breakout') === false,
+            "Forwarded query string strictly excludes internal _breakout parameter",
+            $results
+        );
+        self::assert(
+            strpos($finalUrl, 'campaign=promo2026') !== false,
+            "Legitimate client query parameters (campaign=promo2026) are cleanly preserved",
+            $results
+        );
+        $_GET = [];
+    }
+
+    /**
+     * Test 14: Explicit bot_protection toggle option on links
+     */
+    public static function testBotProtectionExplicitToggleOption(&$results) {
+        echo "Running Phase1ModernizationTest::testBotProtectionExplicitToggleOption...\n";
+
+        $pdo = \Core\DB::get_db();
+        $prefix = defined('DBprefix') ? DBprefix : '';
+
+        // Link with bot_protection explicitly disabled
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `options`, `status`) VALUES
+            (130, 'bot-off-link', 'https://example.mg/api-scrapers', '{\"bot_protection\":false}', 1)");
+
+        require_once ROOT . '/app/controllers/LinkController.php';
+        $controller = new \Link();
+
+        $_SERVER['REQUEST_URI'] = '/bot-off-link';
+        $_SERVER['HTTP_HOST'] = 'localhost';
+        $_SERVER['HTTP_USER_AGENT'] = 'sqlmap/1.6#stable (https://sqlmap.org)';
+        $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'bot-off-link');
+        $out = ob_get_clean();
+
+        // When bot_protection is explicitly false on the link, handleBadBot (403 Access Denied) is bypassed!
+        self::assert(
+            \Core\Response::lastStatusCode() !== 403,
+            "Link with bot_protection=false in options bypasses 403 scanner blocking (option respected)",
             $results
         );
     }

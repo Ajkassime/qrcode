@@ -172,9 +172,10 @@ class InAppBreakout {
         }
 
         // 6. SPECIAL PRESERVATION FOR WHATSAPP TARGETS:
-        // If target is directly a WhatsApp link (wa.me / whatsapp://) and user is in WhatsApp,
-        // breakout is redundant and should not degrade native interaction.
-        if (self::isWhatsAppTarget($url->url) && $detection['app'] === 'whatsapp') {
+        // For any WhatsApp destination (wa.me, api.whatsapp.com, chat.whatsapp.com, whatsapp://),
+        // avoid breakout by default across ALL apps (Instagram, Facebook, TikTok, WhatsApp, Messenger, etc.)
+        // so that native deep-linking to the WhatsApp application operates directly without breakout friction.
+        if (self::isWhatsAppTarget($url->url)) {
             return false;
         }
 
@@ -184,30 +185,47 @@ class InAppBreakout {
     /**
      * Check if a target URL points directly to WhatsApp
      *
-     * @param string $url
+     * @param string|null $url
      * @return bool
      */
-    public static function isWhatsAppTarget(string $url): bool {
+    public static function isWhatsAppTarget(?string $url): bool {
+        if (empty($url)) {
+            return false;
+        }
         if (strpos($url, 'whatsapp://') === 0) {
             return true;
         }
-        $host = (string) parse_url($url, PHP_URL_HOST);
-        return in_array(strtolower($host), ['wa.me', 'api.whatsapp.com', 'chat.whatsapp.com'], true);
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        return in_array($host, ['wa.me', 'www.wa.me', 'api.whatsapp.com', 'chat.whatsapp.com'], true);
     }
 
     /**
      * Generate Android Chrome intent URL
+     * Ensures URL fragment or special characters cannot alter the Intent structure.
      *
      * @param string $targetUrl
      * @return string
      */
     public static function getAndroidIntentUrl(string $targetUrl): string {
-        $scheme = (string) parse_url($targetUrl, PHP_URL_SCHEME);
-        if (empty($scheme)) {
+        // Strip control characters to prevent header or intent parameter injection
+        $sanitized = preg_replace('/[\x00-\x1F\x7F]/', '', $targetUrl);
+
+        $scheme = (string) parse_url($sanitized, PHP_URL_SCHEME);
+        if (empty($scheme) || !in_array(strtolower($scheme), ['http', 'https'], true)) {
             $scheme = 'https';
         }
-        $withoutScheme = preg_replace('~^https?://~i', '', $targetUrl);
-        return 'intent://' . $withoutScheme . '#Intent;scheme=' . $scheme . ';package=com.android.chrome;end';
+
+        $withoutScheme = preg_replace('~^https?://~i', '', $sanitized);
+
+        // Neutralize any existing #Intent; or ;end sequences within the data URL
+        // so that Android's Intent.parseUri cannot be hijacked or terminated early
+        $neutralized = str_ireplace(
+            ['#Intent;', ';end', ';scheme='],
+            ['%23Intent%3B', '%3Bend', '%3Bscheme='],
+            $withoutScheme
+        );
+
+        return 'intent://' . $neutralized . '#Intent;scheme=' . $scheme . ';package=com.android.chrome;end';
     }
 
     /**
@@ -231,6 +249,10 @@ class InAppBreakout {
 
         // Android Intent
         $androidIntent = self::getAndroidIntentUrl($targetUrl);
+
+        $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES;
+        $targetUrlJson = json_encode($targetUrl, $jsonFlags);
+        $androidIntentJson = json_encode($androidIntent, $jsonFlags);
 
         $targetEscaped = htmlspecialchars($targetUrl, ENT_QUOTES, 'UTF-8');
         $continueEscaped = htmlspecialchars($continueInAppUrl, ENT_QUOTES, 'UTF-8');
@@ -335,7 +357,8 @@ class InAppBreakout {
     </div>
 
     <script>
-        var targetUrl = "' . addslashes($targetUrl) . '";
+        var targetUrl = ' . $targetUrlJson . ';
+        var androidIntent = ' . $androidIntentJson . ';
         var isAndroid = ' . ($platform === 'android' ? 'true' : 'false') . ';
 
         function handleOpenClick() {
@@ -345,7 +368,7 @@ class InAppBreakout {
                 // If popup blocked in WebView, copy link to clipboard as a helpful fallback
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(targetUrl).then(function() {
-                        alert("Lien copié dans le presse-papier ! Vous pouvez le coller dans Safari.");
+                        alert("Lien copié dans le presse-papier ! Vous pouvez le coller dans votre navigateur.");
                     }).catch(function() {
                         window.location.href = targetUrl;
                     });
@@ -360,7 +383,7 @@ class InAppBreakout {
             window.addEventListener("DOMContentLoaded", function() {
                 setTimeout(function() {
                     try {
-                        window.location.href = "' . addslashes($androidIntent) . '";
+                        window.location.href = androidIntent;
                     } catch(e) {}
                 }, 300);
             });
