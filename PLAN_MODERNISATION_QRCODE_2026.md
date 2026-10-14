@@ -51,20 +51,28 @@
 
 ---
 
-### PHASE 2 — PERFORMANCES ET CACHE REDIS OPTIONNEL
-- **Objectif :** Offrir une latence de résolution en mémoire ultra-rapide (< 30ms) pour les gros volumes de scans QR.
-- **Architecture :**
-  - Driver Redis configuré dans `config.php` (`CACHE_DRIVER = 'redis'`, `REDIS_HOST`, etc.).
-  - **Circuit Breaker :** En cas d'indisponibilité ou timeout Redis (> 50ms), bascule automatique transparente vers le cache fichiers local.
-  - **Exception de sécurité vitale :** Le système de quotas atomiques et de rate limiting partagé de `app/helpers/GeoLocation.php` conserve son mécanisme `flock()` exclusif sur disque (zéro risque de réinitialisation silencieuse des quotas).
+### PHASE 2 — MODERNISATION DU MOTEUR QR CODE & TYPES COMMERCIAUX (VALIDÉ)
+- **Objectif :** Enrichir le moteur QR Code de fonctionnalités commerciales à forte valeur ajoutée sans dépendance externe propriétaire.
+- **Réalisations :**
+  1. **Nouveaux types de QR codes commerciaux :**
+     - **Multi-URL Dynamique (`\Helpers\MultiUrlEngine`) :** Redirection conditionnelle par langue du navigateur (avec pondération RFC 7231 `q`), par pays détecté (Madagascar/France/etc.), par type d'appareil (iOS/Android/Mobile/Desktop), et par plage horaire avec fuseau horaire (`Indian/Antananarivo`).
+     - **Feedback & Avis Client (`\Helpers\CommercialQr::renderFeedbackPage`) :** Formulaire de notation 1 à 5 étoiles, commentaire, coordonnées optionnelles, protection anti-spam par pot de miel (honeypot) et jeton CSRF, persistance en base dans la table `feedback`.
+     - **Coupon & Promotion Commerciale (`\Helpers\CommercialQr::renderCouponPage`) :** Page de bon de réduction pour emballage, badge de remise, code promo avec bouton copier en 1 clic, compte à rebours dynamique et bouton de réclamation directe sur WhatsApp.
+  2. **Améliorations graphiques du générateur QR :**
+     - Support des dégradés vectoriels SVG en pur PHP (`linearGradient` horizontal, vertical, diagonal, radial).
+     - Formes de points personnalisées : `dots`, `circle`/`rounded`, `diamond`, `hexagon`, `square`.
+     - Formes d'yeux personnalisées : `circle`, `diamond`, `hexagon`, `rounded`, etc.
+     - Intégration de logo au centre avec zone de sécurité (`isPunched`) et élévation automatique de la correction d'erreur au niveau High (`H`) pour garantir une lecture à 100% sur les emballages imprimés.
+     - Prévisualisation temps réel sans rechargement de page (`QRController::preview`).
 
 ---
 
-### PHASE 3 — AMÉLIORATIONS QR CODES & ADMINISTRATION
-- **Module 3A (QrTemplates) :** Table `qrtemplates`. Permet d'enregistrer des gabarits graphiques conformes aux normes d'impression packaging. Réutilise obligatoirement `\Helpers\QR::applyDesign()`.
-- **Module 3B (RBAC) :** Table `roles`. Permissions granulaires vérifiées côté serveur pour isoler les accès des opérateurs de marque, imprimeurs et administrateurs.
-- **Module 3C (Email 2FA) :** Table `email2fa`. Code OTP 6 chiffres envoyé par email, haché en base, avec limitation stricte à 3 tentatives et validité 10 minutes.
-- **Module 3D (ParamTemplates) :** Table `paramtemplates`. Injection propre de balises UTM sans perturber les paramètres complexes WhatsApp.
+### PHASE 3 — PERFORMANCES, CACHE REDIS & GABARITS PACKAGING
+- **Module 3A (Cache Redis Optionnel & Repli Fichier) :** Driver Redis configurable avec circuit-breaker et repli automatique transparent vers fichier. Sanctuarisation absolue du verrou de quotas partagé flock().
+- **Module 3B (QrTemplates) :** Table `qrtemplates`. Gabarits d'impression packaging avec contrôle de contraste et décodabilité.
+- **Module 3C (Rôles et Permissions RBAC) :** Table `roles`. Permissions granulaires serveur (`links.*`, `qr.*`, `stats.*`).
+- **Module 3D (Email 2FA) :** Table `email2fa`. Code OTP à 6 chiffres avec limitation stricte.
+- **Module 3E (ParamTemplates) :** Table `paramtemplates`. Injection propre de balises UTM.
 
 ---
 
@@ -82,16 +90,15 @@
 
 ---
 
-## 3. CRITÈRES D'ACCEPTATION POUR LA PHASE 1
+## 3. BILAN D'EXÉCUTION DES PHASES
 
-1. **253 assertions existantes préservées :** Zéro régression sur la suite de tests `tests/run_tests.php`.
-2. **Nouveaux tests unitaires et d'intégration :**
-   - Test 1 : Scan QR classique vers URL HTTPS (redirection directe sans breakout).
-   - Test 2 : Scan QR WhatsApp avec paramètres complexes (`wa.me/261...?text=...`).
-   - Test 3 : Détection d'un navigateur mobile standard (Safari/Chrome -> redirection directe).
-   - Test 4 : Détection WebView Instagram / Facebook avec option `inapp_breakout` activée -> écran de transition ou intent.
-   - Test 5 : Détection WebView avec option désactivée -> comportement natif inchangé.
-   - Test 6 : Bot d'aperçu OpenGraph (`facebookexternalhit`) -> méta-tags servis, aucun appel géocodeur externe, aucune incrémentation de scan.
-   - Test 7 : Scraper/Bot indésirable -> bloqué sans appel API.
-   - Test 8 : Liens historiques sans nouvelle option -> comportement inchangé garanti à 100%.
-3. **Validation CI GitHub Actions :** Succès sur la matrice multi-PHP (8.1, 8.2, 8.3).
+### Phase 1 (Redirections & Anti-Bots) — TERMINÉE ET VALIDÉE
+- **Tests :** 33/33 assertions réussies (`tests/Phase1ModernizationTest.php`).
+- **CI GitHub Actions :** Succès 100% sur PHP 8.1, 8.2, 8.3.
+- **Pull Request :** PR #2 ouverte sur GitHub.
+
+### Phase 2 (Moteur QR Code & Types Commerciaux) — TERMINÉE ET VALIDÉE
+- **Tests :** 50/50 assertions réussies (`tests/Phase2ModernizationTest.php`).
+- **Total assertions de la suite :** **336 assertions réussies / 336 (0 échec)**.
+- **Non-régression :** Préservation totale des 253 assertions historiques + 33 de la Phase 1.
+

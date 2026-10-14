@@ -312,7 +312,7 @@ class QR {
                 }
             }
 
-            if($request->type == "application"){
+            if(in_array($request->type, ["application", "multiurl", "feedback", "coupon"])){
                 $request->type = "text";
                 $request->text = url('shorturl');
             }
@@ -525,12 +525,13 @@ class QR {
         }
 
         $url = null;
-        $alias = \substr(md5(Auth::user()->rID().$data.Helper::rand(12)), 0, 8);
+        $aliasPayload = is_array($data) ? json_encode($data) : (string) $data;
+        $alias = \substr(md5(Auth::user()->rID().$aliasPayload.Helper::rand(12)), 0, 8);
 
         if(!in_array($request->type, ['text', 'sms','wifi','staticvcard', 'event'])){
             $url = DB::url()->create();
             $url->userid = Auth::user()->rID();
-            $url->url = $data;
+            $url->url = is_array($data) ? ($data['default'] ?? ($data['link'] ?? url(''))) : (string) $data;
             if($request->type == 'link'){
                 if(
                     !$this->validate($data) ||
@@ -543,7 +544,7 @@ class QR {
                     return Helper::redirect()->back()->with('danger', e('URL is suspected to contain malware and other harmful content.'));
                 }
             }
-            $url->alias = \substr(md5(Auth::user()->rID().$data.time()), 0, 6);
+            $url->alias = \substr(md5(Auth::user()->rID().$aliasPayload.time()), 0, 6);
 
             if($request->domain && $this->validateDomainNames(trim($request->domain), Auth::user(), false)){
                 $url->domain = clean($request->domain);
@@ -556,7 +557,6 @@ class QR {
                     'iphone' => $data['apple'] ?? $data['link'],
                     'ipad' => $data['apple'] ?? $data['link'],
                     'android' => $data['google'] ?? $data['link'],
-
                 ]);
             }
 
@@ -873,7 +873,7 @@ class QR {
 
                 ]);
             } else {
-                $url->url = $data;
+                $url->url = is_array($data) ? ($data['default'] ?? ($data['link'] ?? url(''))) : (string) $data;
             }
 
             if($request->domain && $this->validateDomainNames(trim($request->domain), Auth::user(), false)){

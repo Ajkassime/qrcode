@@ -353,6 +353,34 @@ class Link {
 					echo \Helpers\QR::typeVcard($data->data);
 				});
 			}
+
+			// Phase 2: Dynamic Multi-URL conditional redirection
+			if($data->type == 'multiurl' && class_exists('\Helpers\MultiUrlEngine')){
+				$config = (array) ($data->data ?? []);
+				if(empty($config['default']) && !empty($url->url)){
+					$config['default'] = $url->url;
+				}
+				$resolved = \Helpers\MultiUrlEngine::resolve($config, $request);
+				if(!empty($resolved)){
+					$url->url = $resolved;
+				}
+				return Gate::direct($url, null);
+			}
+
+			// Phase 2: Customer Feedback Rating Page
+			if($data->type == 'feedback' && class_exists('\Helpers\CommercialQr')){
+				if($request->isPost() && $request->post('rating') !== null){
+					$result = \Helpers\CommercialQr::handleFeedbackSubmission($url, $request);
+					return (new \Core\Response($result))->json();
+				}
+				return \Helpers\CommercialQr::renderFeedbackPage($url, $qr, (array) ($data->data ?? []), $request);
+			}
+
+			// Phase 2: Retail Promotional Coupon Page
+			if($data->type == 'coupon' && class_exists('\Helpers\CommercialQr')){
+				return \Helpers\CommercialQr::renderCouponPage($url, $qr, (array) ($data->data ?? []), $request);
+			}
+
 			return Gate::direct($url, null);
 		}
 
