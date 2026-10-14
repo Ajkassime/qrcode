@@ -311,16 +311,25 @@ class Link {
 			return Gate::disabled();
 		}
 
+		// Check for Advanced Multi-Criteria Targeting (Country + Region + Device + OS + Language + Schedule)
+		if(!empty($options['advanced_targeting_rules'])){
+			$geo = $request->country();
+			$visitorCtx = [
+				'country'  => $geo['country'] ?? '',
+				'region'   => $geo['state'] ?? '',
+				'device'   => $request->device() ?? '',
+				'os'       => $request->device() ?? '',
+				'language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '',
+			];
+			$url->url = \Helpers\AdvancedTargeting::resolve($url, $visitorCtx);
+		}
+
 		// Replace encoded ampersand
 		$url->url = str_replace("&amp;", "&", $url->url);
 
-		// Append parameters
-		if(!empty($url->parameters) && $params = json_decode($url->parameters, false)){
-			if(strpos($url->url, "?")){
-				$url->url = $url->url."&".http_build_query($params);
-			}else{
-				$url->url = $url->url."?".http_build_query($params);
-			}
+		// Append parameters (via UtmManager for safe parameter merge and WhatsApp target preservation)
+		if(!empty($url->parameters) && $params = json_decode($url->parameters, true)){
+			$url->url = \Helpers\UtmManager::applyParameters($url->url, $params);
 		}
 
 		// Forward queries if any

@@ -99,6 +99,31 @@
 
 ### Phase 2 (Moteur QR Code & Types Commerciaux) — TERMINÉE ET VALIDÉE
 - **Tests :** 50/50 assertions réussies (`tests/Phase2ModernizationTest.php`).
-- **Total assertions de la suite :** **336 assertions réussies / 336 (0 échec)**.
-- **Non-régression :** Préservation totale des 253 assertions historiques + 33 de la Phase 1.
+- **Total assertions :** 336 assertions réussies / 336 (0 échec).
+
+### Phase 3 (Performances, Cache Redis & Administration) — TERMINÉE ET VALIDÉE
+- **Module 3A :** Cache Redis optionnel avec circuit-breaker et repli fichier local sans exception (`Helpers\RedisCache`). Sanctuarisation du verrou flock() partagé.
+- **Module 3B :** Gabarits packaging `qrtemplates` avec contrôle de contraste et élévation automatique de correction d'erreur à 'H' (`Helpers\QrTemplate`).
+- **Module 3C :** Système RBAC configurable et permissions granulaires serveur (`Helpers\Rbac`, `Middleware\CheckRolePermission`). Préservation intégrale des administrateurs historiques.
+- **Module 3D :** Authentification 2FA e-mail avec codes temporaires à 6 chiffres hachés, anti-brute-force (3 essais max) et codes de secours (`Helpers\Email2FA`).
+- **Module 3E :** Modèles de paramètres URL UTM (`Helpers\UtmManager`) avec préservation stricte des paramètres complexes WhatsApp.
+- **Tests :** 56/56 assertions réussies (`tests/Phase3ModernizationTest.php`).
+
+### Phase 4 (Ciblage Avancé & Modernisation UI) — TERMINÉE ET VALIDÉE
+- **Module 4A :** Ciblage combiné multi-critères (Pays + Région + Appareil + OS + Langue + Plage horaire) avec blocage strict des régions inconnues (`Helpers\AdvancedTargeting`).
+- **Module 4B :** Tableau de bord enrichi segmentant scans humains vs crawlers d'aperçus sociaux, précision kilométrique moyenne et tokens Dark Mode (`Helpers\StatsDashboard`).
+- **Module 4C :** Gestionnaire de plugins locaux sécurisé sans chargement distant (`Helpers\PluginManager`).
+- **Tests :** 17/17 assertions réussies (`tests/Phase4ModernizationTest.php`).
+
+---
+
+## 4. BILAN GLOBAL DES TESTS AUTOMATISÉS
+
+- **Total assertions de la suite :** **409 assertions réussies / 409 (0 échec, 100% succès)**.
+- **Non-régression :**
+  - 253 assertions historiques (Sécurité CSRF, Quotas géolocalisation atomiques, Uploads, Consentement GPS, WhatsApp, Intégration HTTP isolée).
+  - 33 assertions Phase 1 (Breakout navigateurs in-app, protection anti-bots sélective).
+  - 50 assertions Phase 2 (Types QR commerciaux, moteur vectoriel SVG, formulaires UI).
+  - 56 assertions Phase 3 (Redis, QrTemplates, RBAC, Email 2FA, UtmManager).
+  - 17 assertions Phase 4 (Ciblage combiné, segmentation stats fines, plugins locaux).
 

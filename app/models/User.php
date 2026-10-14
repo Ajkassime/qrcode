@@ -216,6 +216,25 @@ class User extends Model {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Check RBAC permission for this user
+	 *
+	 * @param string $permission
+	 * @return bool
+	 */
+	public function can(string $permission): bool {
+		return \Helpers\Rbac::can($this, $permission);
+	}
+
+	/**
+	 * Get assigned RBAC role
+	 *
+	 * @return object|null
+	 */
+	public function role(): ?object {
+		return !empty($this->role_id) ? \Helpers\Rbac::getRole($this->role_id) : null;
 	}		
 	/**
 	 * Get user pixels list
