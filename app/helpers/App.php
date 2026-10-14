@@ -655,6 +655,10 @@ final class App {
      * @return void
      */
     public static function bot(){
+        if(class_exists('\Helpers\BotProtection')){
+            $analysis = \Helpers\BotProtection::analyze(request());
+            return $analysis['is_bot'];
+        }
         $CrawlerDetect = new \Jaybizzle\CrawlerDetect\CrawlerDetect;
         if($CrawlerDetect->isCrawler()) {
           return true;
