@@ -45,6 +45,9 @@ if (!defined('CDNASSETS')) {
 if (!defined('CDNUPLOADS')) {
     define('CDNUPLOADS', null);
 }
+if (!defined('CACHE')) {
+    define('CACHE', true);
+}
 
 require_once CORE . "/functions/core.php";
 require_once CORE . "/GemError.class.php";

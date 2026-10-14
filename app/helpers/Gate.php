@@ -702,4 +702,30 @@ class Gate {
                     </body>
                     </html>', 200))->send();
     }
+    /**
+     * Customer Feedback Rating Gate
+     *
+     * @param object $url
+     * @param object|null $qr
+     * @param array $data
+     * @param Request|null $request
+     * @return Response
+     */
+    public static function feedback(object $url, ?object $qr = null, array $data = [], ?Request $request = null): Response {
+        $request = $request ?? request();
+        return CommercialQr::renderFeedbackPage($url, $qr, $data, $request);
+    }
+    /**
+     * Retail Promotional Coupon Gate
+     *
+     * @param object $url
+     * @param object|null $qr
+     * @param array $data
+     * @param Request|null $request
+     * @return Response
+     */
+    public static function coupon(object $url, ?object $qr = null, array $data = [], ?Request $request = null): Response {
+        $request = $request ?? request();
+        return CommercialQr::renderCouponPage($url, $qr, $data, $request);
+    }
 }

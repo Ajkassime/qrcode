@@ -70,7 +70,18 @@ class QR {
         if(is_string($request)){
             $data = call_user_func([self::class, 'typeText'], clean($request));
         }
-    
+
+        if(is_array($data)){
+            if(isset($data['default'])){
+                $data = (string) $data['default'];
+            } elseif(isset($data['link'])){
+                $data = (string) $data['link'];
+            } elseif(isset($data['url'])){
+                $data = (string) $data['url'];
+            } else {
+                $data = json_encode($data);
+            }
+        }
 
         try {
             return new QrImagick($data, $size, $margin);
@@ -125,6 +136,13 @@ class QR {
         // Gradient or solid colors
         if(($data instanceof QrImagick || self::hasImagick()) && isset($qrData->gradient) && !empty($qrData->gradient)){
             $gradient = (array) $qrData->gradient;
+            if(isset($gradient[0]) && is_string($gradient[0]) && isset($gradient[1]) && is_string($gradient[1]) && strpos($gradient[0], 'rgb') !== false){
+                $gradient = [
+                    [$gradient[0], $gradient[1]],
+                    $qrData->color->bg ?? $qrData->bg ?? 'rgb(255,255,255)',
+                    $gradient[2] ?? 'vertical'
+                ];
+            }
             if(isset($qrData->eyeframecolor) && $qrData->eyeframecolor){
                 $gradient[] = $qrData->eyeframecolor;
             }
@@ -162,32 +180,40 @@ class QR {
         }
 
         // Logo
+        $hasLogo = false;
         $logoSize = ($qrData->logosize ?? 150) * $size / 1000;
         $effectiveMargin = ($margin > 0) ? ($logoSize - $margin * 4) : $logoSize;
 
         if(!$user || $user->has('qrlogo')){
             if(!empty($qrData->punchedlogo)){
                 $data->isPunched();
+                $hasLogo = true;
             }
             if(!empty($qrData->definedlogo) && $qrData->definedlogo !== 'none.png'){
                 $data->withLogo(PUB.'/static/images/'.$qrData->definedlogo, $effectiveMargin);
+                $hasLogo = true;
             }
             if(!empty($qrData->custom)){
                 $customPath = \Core\View::storage($qrData->custom, 'qr');
                 if(file_exists($customPath)){
                     $data->withLogo($customPath, $effectiveMargin);
+                    $hasLogo = true;
                 }
             }
         } else {
             if(config('qrlogo')){
                 $defaultLogoSize = ($margin > 0) ? (250 - $margin * 4) : 250;
                 $data->withLogo(PUB.'/content/'.config('qrlogo'), $defaultLogoSize);
+                $hasLogo = true;
             }
         }
 
-        // Error correction
-        if(isset($qrData->error) && in_array($qrData->error, ['l', 'm', 'q', 'h'])){
-            $data->errorCorrection($qrData->error);
+        // Error correction: automatically elevate to High (H) if a logo is present to guarantee packaging readability
+        $requestedError = isset($qrData->error) && in_array(strtolower((string) $qrData->error), ['l', 'm', 'q', 'h']) ? strtolower((string) $qrData->error) : null;
+        if($hasLogo && ($requestedError === null || in_array($requestedError, ['l', 'm']))){
+            $data->errorCorrection('h');
+        } elseif($requestedError){
+            $data->errorCorrection($requestedError);
         }
 
         return $data;
@@ -743,6 +769,45 @@ class QR {
 
         if(empty($data['link']) || !Helper::isURL($data['link'])) throw new \Exception(e('The link to redirect other devices is required.'));
 
+        return $data;
+    }
+    /**
+     * Multi-URL Dynamic Redirection Type
+     *
+     * @param array|string $data
+     * @return array|string
+     */
+    public static function typeMultiurl($data){
+        $data = (array) $data;
+        if(empty($data['default']) || !Helper::isURL($data['default'])){
+            throw new \Exception(e('Default URL is required and must be a valid URL.'));
+        }
+        return $data;
+    }
+    /**
+     * Customer Feedback Rating Type
+     *
+     * @param array|string $data
+     * @return array|string
+     */
+    public static function typeFeedback($data){
+        $data = (array) $data;
+        if(empty($data['title']) && empty($data['business_name'])){
+            throw new \Exception(e('Feedback title or business name is required.'));
+        }
+        return $data;
+    }
+    /**
+     * Retail Promotional Coupon Type
+     *
+     * @param array|string $data
+     * @return array|string
+     */
+    public static function typeCoupon($data){
+        $data = (array) $data;
+        if(empty($data['code']) || empty($data['discount'])){
+            throw new \Exception(e('Coupon code and discount amount/percentage are required.'));
+        }
         return $data;
     }
 }

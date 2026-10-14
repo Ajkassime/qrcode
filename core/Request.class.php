@@ -416,6 +416,16 @@ final class Request {
 		return $this->typeof() == "post" ? true : false;
 	}
 	/**
+	 * Get POST variable or all POST data
+	 *
+	 * @param string|null $variable
+	 * @return mixed
+	 */
+	public function post(?string $variable = null){
+		if($variable === null) return $_POST;
+		return $_POST[$variable] ?? ($this->_HTTPrequest->{$variable} ?? null);
+	}
+	/**
 	 * Custom raw body override for testing
 	 * @var string|null
 	 */

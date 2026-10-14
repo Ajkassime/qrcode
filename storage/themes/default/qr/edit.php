@@ -437,6 +437,75 @@
                         </div>
                     </div>
                 <?php endif ?>
+                <?php if($qr->data->type == 'multiurl'): ?>
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-globe"></i> <?php ee('Multi-URL Dynamique') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('URL par défaut') ?>*</label>
+                            <input type="text" class="form-control p-2" name="multiurl[default]" placeholder="https://example.com/global" value="<?php echo clean($qr->data->data->default ?? '') ?>">
+                        </div>
+                    </div>
+                <?php endif ?>
+                <?php if($qr->data->type == 'feedback'): ?>
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-star"></i> <?php ee('Évaluation & Avis Client') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Nom de votre établissement ou marque') ?>*</label>
+                            <input type="text" class="form-control p-2" name="feedback[business_name]" placeholder="e.g. Restaurant La Varangue" value="<?php echo clean($qr->data->data->business_name ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Titre du formulaire') ?>*</label>
+                            <input type="text" class="form-control p-2" name="feedback[title]" placeholder="e.g. Votre avis nous intéresse" value="<?php echo clean($qr->data->data->title ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Sous-titre / Message') ?></label>
+                            <input type="text" class="form-control p-2" name="feedback[subtitle]" placeholder="e.g. Prenez quelques secondes pour évaluer notre service" value="<?php echo clean($qr->data->data->subtitle ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Numéro WhatsApp pour suivi (facultatif)') ?></label>
+                            <input type="text" class="form-control p-2" name="feedback[whatsapp]" placeholder="e.g. +261340000000" value="<?php echo clean($qr->data->data->whatsapp ?? '') ?>">
+                        </div>
+                    </div>
+                <?php endif ?>
+                <?php if($qr->data->type == 'coupon'): ?>
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-tag"></i> <?php ee('Coupon & Promotion Commerciale') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Nom du commerce ou marque') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[business_name]" placeholder="e.g. Zoma Épices Madagascar" value="<?php echo clean($qr->data->data->business_name ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Code Promo') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[code]" placeholder="e.g. ZOMA2026" value="<?php echo clean($qr->data->data->code ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Montant ou % de réduction') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[discount]" placeholder="e.g. -20% ou 5 000 Ar offerts" value="<?php echo clean($qr->data->data->discount ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Titre de la promotion') ?></label>
+                            <input type="text" class="form-control p-2" name="coupon[title]" placeholder="e.g. Offre Exclusive Emballage" value="<?php echo clean($qr->data->data->title ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Description') ?></label>
+                            <textarea class="form-control p-2" name="coupon[description]" placeholder="e.g. Présentez ce code lors de votre commande"><?php echo clean($qr->data->data->description ?? '') ?></textarea>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Date d\'expiration (Compte à rebours)') ?></label>
+                            <input type="datetime-local" class="form-control p-2" name="coupon[expiry]" value="<?php echo clean($qr->data->data->expiry ?? '') ?>">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Numéro WhatsApp pour réclamer') ?></label>
+                            <input type="text" class="form-control p-2" name="coupon[whatsapp]" placeholder="e.g. +261340123456" value="<?php echo clean($qr->data->data->whatsapp ?? '') ?>">
+                        </div>
+                    </div>
+                <?php endif ?>
             </div>
             <div class="card shadow-sm">
                 <div class="card-header mt-2">

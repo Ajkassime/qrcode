@@ -314,40 +314,28 @@ class QRImagick {
      */
     public function module($type = 'square', $size = 0.5){
 
+        $type = strtolower((string) $type);
+
         if ($type == 'heart') {
             $this->Qr->module = new HeartModule($size*1.5);
-        }
-
-        if ($type == 'diamond') {
+        } elseif ($type == 'diamond') {
             $this->Qr->module = new DiamondModule(1);
-        }
-
-        if ($type == 'dot') {
+        } elseif ($type == 'dot' || $type == 'dots') {
             $this->Qr->module = new DotsModule($size*1.5);
-        }
-
-        if ($type == 'circle') {
+        } elseif ($type == 'circle' || $type == 'round' || $type == 'rounded') {
             $this->Qr->module = new RoundnessModule($size);
-        }
-
-        if ($type == 'splash') {
+        } elseif ($type == 'splash') {
             $this->Qr->module = new RoundnessModule(1);
-        }
-
-        if ($type == 'squarespace') {
+        } elseif ($type == 'squarespace') {
             $this->Qr->module = new SquareSpaceModule();
-        }
-
-        if ($type == 'longrounded') {
+        } elseif ($type == 'longrounded') {
             $this->Qr->module = new LongRoundedModule();
-        }
-
-        if ($type == 'tallrounded') {
+        } elseif ($type == 'tallrounded') {
             $this->Qr->module = new TallRoundedModule();
-        }
-
-        if ($type == 'hexagon') {
+        } elseif ($type == 'hexagon') {
             $this->Qr->module = new HexagonModule();
+        } else {
+            $this->Qr->module = SquareModule::instance();
         }
 
         return $this;

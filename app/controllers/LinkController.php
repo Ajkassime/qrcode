@@ -97,11 +97,26 @@ class Link {
      */
     public function redirect(Request $request, string $alias){
 
+		// Module 1B: Anti-Bot & Scraper Protection
+		$botAnalysis = class_exists('\Helpers\BotProtection')
+			? \Helpers\BotProtection::analyze($request)
+			: ['type' => 'human', 'is_preview' => false];
+
+		if ($botAnalysis['type'] === 'bad_bot') {
+			return \Helpers\BotProtection::handleBadBot();
+		}
+
 		// @group Plugin: Pre-redirect checks or complete override
 		Plugin::dispatch('link.preredirect', $alias);
 
 		if(!$url = $this->getURL($request, $alias)){
 			return $this->notFound($request);
+		}
+
+		// Module 1B: Serve clean OpenGraph metadata for social previews (WhatsApp, Meta) without counting fake scans or geocoding
+		if (!empty($botAnalysis['is_preview'])) {
+			if (!$url->status) return Gate::inactive();
+			return \Helpers\BotProtection::handleSocialPreview($url);
 		}
 
 		// Plugin: Take control of redirect
@@ -296,16 +311,25 @@ class Link {
 			return Gate::disabled();
 		}
 
+		// Check for Advanced Multi-Criteria Targeting (Country + Region + Device + OS + Language + Schedule)
+		if(!empty($options['advanced_targeting_rules'])){
+			$geo = $request->country();
+			$visitorCtx = [
+				'country'  => $geo['country'] ?? '',
+				'region'   => $geo['state'] ?? '',
+				'device'   => $request->device() ?? '',
+				'os'       => $request->device() ?? '',
+				'language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '',
+			];
+			$url->url = \Helpers\AdvancedTargeting::resolve($url, $visitorCtx);
+		}
+
 		// Replace encoded ampersand
 		$url->url = str_replace("&amp;", "&", $url->url);
 
-		// Append parameters
-		if(!empty($url->parameters) && $params = json_decode($url->parameters, false)){
-			if(strpos($url->url, "?")){
-				$url->url = $url->url."&".http_build_query($params);
-			}else{
-				$url->url = $url->url."?".http_build_query($params);
-			}
+		// Append parameters (via UtmManager for safe parameter merge and WhatsApp target preservation)
+		if(!empty($url->parameters) && $params = json_decode($url->parameters, true)){
+			$url->url = \Helpers\UtmManager::applyParameters($url->url, $params);
 		}
 
 		// Forward queries if any
@@ -322,6 +346,11 @@ class Link {
 			return Gate::consentLocation($url, $user);
 		}
 
+		// Module 1A: In-App Browser Breakout (Optional per-link, disabled by default)
+		if(class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::shouldBreakout($url, $request)){
+			return \Helpers\InAppBreakout::renderBreakoutPage($url, $request);
+		}
+
 		if($url->qrid){
 
 			$qr = DB::qrs()->where('id', $url->qrid)->first();
@@ -333,6 +362,34 @@ class Link {
 					echo \Helpers\QR::typeVcard($data->data);
 				});
 			}
+
+			// Phase 2: Dynamic Multi-URL conditional redirection
+			if($data->type == 'multiurl' && class_exists('\Helpers\MultiUrlEngine')){
+				$config = (array) ($data->data ?? []);
+				if(empty($config['default']) && !empty($url->url)){
+					$config['default'] = $url->url;
+				}
+				$resolved = \Helpers\MultiUrlEngine::resolve($config, $request);
+				if(!empty($resolved)){
+					$url->url = $resolved;
+				}
+				return Gate::direct($url, null);
+			}
+
+			// Phase 2: Customer Feedback Rating Page
+			if($data->type == 'feedback' && class_exists('\Helpers\CommercialQr')){
+				if($request->isPost() && $request->post('rating') !== null){
+					$result = \Helpers\CommercialQr::handleFeedbackSubmission($url, $request);
+					return (new \Core\Response($result))->json();
+				}
+				return \Helpers\CommercialQr::renderFeedbackPage($url, $qr, (array) ($data->data ?? []), $request);
+			}
+
+			// Phase 2: Retail Promotional Coupon Page
+			if($data->type == 'coupon' && class_exists('\Helpers\CommercialQr')){
+				return \Helpers\CommercialQr::renderCouponPage($url, $qr, (array) ($data->data ?? []), $request);
+			}
+
 			return Gate::direct($url, null);
 		}
 

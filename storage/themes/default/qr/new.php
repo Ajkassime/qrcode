@@ -39,6 +39,9 @@
                     <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#file"><i class="me-2 fa fa-file fa-lg"></i> <?php ee('File') ?></a>
                     <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#whatsapp"><i class="me-2 fab fa-whatsapp fa-lg"></i> <?php ee('Whatsapp') ?></a>
                     <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#crypto"><i class="me-2 fab fa-bitcoin fa-lg"></i> <?php ee('Cryptocurrency') ?></a>
+                    <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#multiurl"><i class="me-2 fa fa-globe fa-lg"></i> <?php ee('Multi-URL') ?></a>
+                    <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#feedback"><i class="me-2 fa fa-star fa-lg"></i> <?php ee('Feedback') ?></a>
+                    <a class="btn border p-2 rounded-3 mb-2 me-1" data-trigger="switcher" href="#coupon"><i class="me-2 fa fa-tag fa-lg"></i> <?php ee('Coupon') ?></a>
                 </div>
             </div>
             <div class="card shadow-sm" id="qrbuilder">
@@ -424,6 +427,75 @@
                         <div class="form-group mb-3">
                             <label class="form-label fw-bold"><?php ee('Link for others') ?>*</label>
                             <input type="text" class="form-control p-2" name="application[link]" placeholder="https://">
+                        </div>
+                    </div>
+                </div>
+                <div class="collapse switcher" id="multiurl">
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-globe"></i> <?php ee('Multi-URL Dynamique') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('URL par défaut') ?>*</label>
+                            <input type="text" class="form-control p-2" name="multiurl[default]" placeholder="https://example.com/global">
+                        </div>
+                    </div>
+                </div>
+                <div class="collapse switcher" id="feedback">
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-star"></i> <?php ee('Évaluation & Avis Client') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Nom de votre établissement ou marque') ?>*</label>
+                            <input type="text" class="form-control p-2" name="feedback[business_name]" placeholder="e.g. Restaurant La Varangue">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Titre du formulaire') ?>*</label>
+                            <input type="text" class="form-control p-2" name="feedback[title]" placeholder="e.g. Votre avis nous intéresse">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Sous-titre / Message') ?></label>
+                            <input type="text" class="form-control p-2" name="feedback[subtitle]" placeholder="e.g. Prenez quelques secondes pour évaluer notre service">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Numéro WhatsApp pour suivi (facultatif)') ?></label>
+                            <input type="text" class="form-control p-2" name="feedback[whatsapp]" placeholder="e.g. +261340000000">
+                        </div>
+                    </div>
+                </div>
+                <div class="collapse switcher" id="coupon">
+                    <div class="card-header">
+                        <h5 class="card-title fw-bold"><i class="me-2 fa fa-tag"></i> <?php ee('Coupon & Promotion Commerciale') ?></h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Nom du commerce ou marque') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[business_name]" placeholder="e.g. Zoma Épices Madagascar">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Code Promo') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[code]" placeholder="e.g. ZOMA2026">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Montant ou % de réduction') ?>*</label>
+                            <input type="text" class="form-control p-2" name="coupon[discount]" placeholder="e.g. -20% ou 5 000 Ar offerts">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Titre de la promotion') ?></label>
+                            <input type="text" class="form-control p-2" name="coupon[title]" placeholder="e.g. Offre Exclusive Emballage">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Description') ?></label>
+                            <textarea class="form-control p-2" name="coupon[description]" placeholder="e.g. Présentez ce code lors de votre commande"></textarea>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Date d\'expiration (Compte à rebours)') ?></label>
+                            <input type="datetime-local" class="form-control p-2" name="coupon[expiry]">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold"><?php ee('Numéro WhatsApp pour réclamer') ?></label>
+                            <input type="text" class="form-control p-2" name="coupon[whatsapp]" placeholder="e.g. +261340123456">
                         </div>
                     </div>
                 </div>

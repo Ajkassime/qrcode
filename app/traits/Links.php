@@ -307,6 +307,14 @@ trait Links {
             $options['deeplink']['apple'] = clean($request->deeplink['apple']);
         }
 
+        if(!empty($request->inapp_breakout)){
+            $options['inapp_breakout'] = true;
+        }
+
+        if(!empty($request->bot_protection)){
+            $options['bot_protection'] = clean($request->bot_protection);
+        }
+
         // @group Plugin
         \Core\Plugin::dispatch('link.shorten.pre', $request);
 
@@ -736,6 +744,18 @@ trait Links {
             $options['deeplink']['enabled'] = true;
             $options['deeplink']['google'] = clean($request->deeplink['google']);
             $options['deeplink']['apple'] = clean($request->deeplink['apple']);
+        }
+
+        if(!empty($request->inapp_breakout)){
+            $options['inapp_breakout'] = true;
+        } else {
+            unset($options['inapp_breakout']);
+        }
+
+        if(!empty($request->bot_protection)){
+            $options['bot_protection'] = clean($request->bot_protection);
+        } else {
+            unset($options['bot_protection']);
         }
 
         // Generate formatted list of parameters

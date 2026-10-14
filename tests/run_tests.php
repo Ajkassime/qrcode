@@ -11,6 +11,10 @@ require_once __DIR__ . '/CsrfSecurityTest.php';
 require_once __DIR__ . '/UploadSecurityTest.php';
 require_once __DIR__ . '/RoutingMiddlewareTest.php';
 require_once __DIR__ . '/GeoLocationTest.php';
+require_once __DIR__ . '/Phase1ModernizationTest.php';
+require_once __DIR__ . '/Phase2ModernizationTest.php';
+require_once __DIR__ . '/Phase3ModernizationTest.php';
+require_once __DIR__ . '/Phase4ModernizationTest.php';
 
 $results = [
     'passed' => 0,
@@ -30,6 +34,14 @@ echo "\n";
 RoutingMiddlewareTest::run($results);
 echo "\n";
 GeoLocationTest::run($results);
+echo "\n";
+Phase1ModernizationTest::run($results);
+echo "\n";
+Phase2ModernizationTest::run($results);
+echo "\n";
+\Tests\Phase3ModernizationTest::run($results);
+echo "\n";
+\Tests\Phase4ModernizationTest::run($results);
 echo "\n";
 
 $total = $results['passed'] + $results['failed'];
