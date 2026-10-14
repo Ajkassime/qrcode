@@ -113,12 +113,6 @@ class Link {
 			return $this->notFound($request);
 		}
 
-		// Module 1B: Serve clean OpenGraph metadata for social previews (WhatsApp, Meta) without counting fake scans or geocoding
-		if (!empty($botAnalysis['is_preview'])) {
-			if (!$url->status) return Gate::inactive();
-			return \Helpers\BotProtection::handleSocialPreview($url);
-		}
-
 		// Plugin: Take control of redirect
 		Plugin::dispatch('link.redirect', $url);
 
@@ -136,8 +130,12 @@ class Link {
 		// Check if URL is disabled
 		if(!$url->status) return Gate::inactive();
 
-		// Check blacklist domain
+		// Check blacklist domain and banned links
 		if(!$url->qrid && !$url->profileid && ($this->domainBlacklisted($url->url) || $this->wordBlacklisted($url->url))) return Gate::disabled();
+
+		if(DB::reports()->whereRaw('bannedlink LIKE ?', ['%'.$url->url.'%'])->first()){
+			return Gate::disabled();
+		}
 
 		// Check with Google Web Risk
 		if(!$url->qrid && !$url->profileid && !$this->safe($url->url)) {
@@ -223,6 +221,13 @@ class Link {
 			}else {
 				return Gate::expired();
 			}
+		}
+
+		// Module 1B: Serve clean OpenGraph metadata for legitimate social preview crawlers (WhatsApp, Facebook, Twitter, Telegram)
+		// Crucial confidentiality guarantee: Delivered ONLY after password, expiration, status and security gates have passed.
+		// Returns before updateStats() so no human scan count and no paid geocoding are consumed.
+		if (!empty($botAnalysis['is_preview'])) {
+			return \Helpers\BotProtection::handleSocialPreview($url);
 		}
 
 		// Update Stats

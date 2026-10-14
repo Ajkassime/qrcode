@@ -18,6 +18,7 @@ class Phase1ModernizationTest {
         self::testMaliciousBotBlockingWithoutGeocoding($results);
         self::testHumanInAppVisitorPreservedForStatsAndGeo($results);
         self::testHistoricalLinksWithoutNewConfig($results);
+        self::testSecurityGatesOrderAndConfidentialityPreservation($results);
     }
 
     private static function assert($condition, $message, &$results) {
@@ -414,4 +415,184 @@ class Phase1ModernizationTest {
             $results
         );
     }
+
+    /**
+     * Test 10: Confidentiality of Private, Expired and Banned Links Against Social Preview Crawlers
+     */
+    public static function testSecurityGatesOrderAndConfidentialityPreservation(&$results) {
+        echo "Running Phase1ModernizationTest::testSecurityGatesOrderAndConfidentialityPreservation...\n";
+
+        \Core\DB::configure('sqlite::memory:');
+        \Core\DB::configure('return_result_sets', true);
+        $pdo = \Core\DB::get_db();
+        $prefix = defined('DBprefix') ? DBprefix : '';
+
+        $pdo->exec("DROP TABLE IF EXISTS `{$prefix}url`");
+        $pdo->exec("DROP TABLE IF EXISTS `{$prefix}stats`");
+        $pdo->exec("DROP TABLE IF EXISTS `{$prefix}reports`");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}url` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `userid` INTEGER DEFAULT 0,
+            `alias` TEXT,
+            `custom` TEXT,
+            `url` TEXT,
+            `options` TEXT,
+            `pass` TEXT DEFAULT NULL,
+            `expiry` TEXT DEFAULT NULL,
+            `click` INTEGER DEFAULT 0,
+            `uniqueclick` INTEGER DEFAULT 0,
+            `status` INTEGER DEFAULT 1,
+            `domain` TEXT DEFAULT NULL,
+            `qrid` INTEGER DEFAULT NULL,
+            `profileid` INTEGER DEFAULT NULL,
+            `meta_title` TEXT DEFAULT NULL,
+            `meta_description` TEXT DEFAULT NULL,
+            `meta_image` TEXT DEFAULT NULL,
+            `date` TEXT DEFAULT NULL
+        )");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}stats` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `short` TEXT,
+            `urlid` INTEGER,
+            `urluserid` INTEGER DEFAULT 0,
+            `date` TEXT,
+            `ip` TEXT,
+            `country` TEXT,
+            `region` TEXT,
+            `city` TEXT,
+            `geo_source` TEXT,
+            `accuracy_radius` INTEGER,
+            `browser` TEXT DEFAULT '',
+            `os` TEXT DEFAULT '',
+            `device` TEXT DEFAULT '',
+            `domain` TEXT DEFAULT '',
+            `referer` TEXT DEFAULT '',
+            `language` TEXT DEFAULT ''
+        )");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}reports` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `bannedlink` TEXT DEFAULT ''
+        )");
+
+        // Insert test URLs
+        // 1. Password-protected link
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `pass`, `meta_title`, `status`) VALUES
+            (101, 'pass-protected', 'https://internal-confidential.example.com/vault', 'secret_key_123', 'Secret Financial Document', 1)");
+
+        // 2. Expired by date link
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `expiry`, `meta_title`, `status`) VALUES
+            (102, 'expired-link', 'https://campaign.example.com/ended', '2020-01-01 00:00:00', 'Ended Summer 2020 Promo', 1)");
+
+        // 3. Expired by click limit
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `options`, `click`, `meta_title`, `status`) VALUES
+            (103, 'click-limit', 'https://limited.example.com/tickets', '{\"clicklimit\":5}', 5, 'VIP Concert Ticket Giveaway', 1)");
+
+        // 4. Inactive / disabled link
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
+            (104, 'inactive-link', 'https://inactive.example.com/page', 'Hidden Draft', 0)");
+
+        // 5. Banned link in reports
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
+            (105, 'banned-link', 'https://phishing-domain.example.com/login', 'Phishing Page', 1)");
+        $pdo->exec("INSERT INTO `{$prefix}reports` (`id`, `bannedlink`) VALUES (1, 'phishing-domain.example.com')");
+
+        // 6. Public valid accessible link
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `meta_description`, `status`) VALUES
+            (106, 'public-qr', 'https://wa.me/261340000000?text=Bonjour', 'Catalogue Vanille Export', 'Commandez votre vanille certifiée.', 1)");
+
+        require_once ROOT . '/app/controllers/LinkController.php';
+        $controller = new \Link();
+
+        \Core\View::set('path', STORAGE . '/themes/default');
+        \Gem::$Config->theme = 'default';
+        \Gem::$Config->url = 'http://localhost';
+        $_SERVER['HTTP_HOST'] = 'localhost';
+        $_SERVER['HTTP_USER_AGENT'] = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
+        $_SERVER['REMOTE_ADDR'] = '66.220.144.1';
+        $_SESSION = [];
+
+        // Check 1: Password-protected link requested by preview bot -> MUST NOT LEAK OPENGRAPH META!
+        $_SERVER['REQUEST_URI'] = '/pass-protected';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'pass-protected');
+        $outPass = ob_get_clean();
+        self::assert(
+            strpos($outPass, 'Secret Financial Document') === false &&
+            strpos($outPass, 'internal-confidential.example.com') === false,
+            "Confidentiality 1: Password-protected link strictly refuses OpenGraph leaks to social crawlers",
+            $results
+        );
+
+        // Check 2: Expired date link requested by preview bot -> MUST NOT LEAK OPENGRAPH META!
+        $_SERVER['REQUEST_URI'] = '/expired-link';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'expired-link');
+        $outExp = ob_get_clean();
+        self::assert(
+            strpos($outExp, 'Ended Summer 2020 Promo') === false &&
+            strpos($outExp, 'campaign.example.com') === false,
+            "Confidentiality 2: Expired date link strictly refuses OpenGraph preview to social crawlers",
+            $results
+        );
+
+        // Check 3: Click-limited link requested by preview bot -> MUST NOT LEAK OPENGRAPH META!
+        $_SERVER['REQUEST_URI'] = '/click-limit';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'click-limit');
+        $outClickLimit = ob_get_clean();
+        self::assert(
+            strpos($outClickLimit, 'VIP Concert Ticket Giveaway') === false,
+            "Confidentiality 3: Click-exhausted link strictly refuses OpenGraph preview to social crawlers",
+            $results
+        );
+
+        // Check 4: Inactive link requested by preview bot -> MUST NOT LEAK OPENGRAPH META!
+        $_SERVER['REQUEST_URI'] = '/inactive-link';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'inactive-link');
+        $outInactive = ob_get_clean();
+        self::assert(
+            strpos($outInactive, 'Hidden Draft') === false,
+            "Confidentiality 4: Inactive link strictly refuses OpenGraph preview to social crawlers",
+            $results
+        );
+
+        // Check 5: Banned link requested by preview bot -> MUST NOT LEAK OPENGRAPH META!
+        $_SERVER['REQUEST_URI'] = '/banned-link';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'banned-link');
+        $outBanned = ob_get_clean();
+        self::assert(
+            strpos($outBanned, 'Phishing Page') === false,
+            "Confidentiality 5: Blacklisted/reported link strictly refuses OpenGraph preview to social crawlers",
+            $results
+        );
+
+        // Check 6: Valid public link requested by preview bot -> serves clean OpenGraph WITHOUT incrementing stats or geocoding
+        $_SERVER['REQUEST_URI'] = '/public-qr';
+        $statsCountBefore = (int)$pdo->query("SELECT COUNT(*) FROM `{$prefix}stats`")->fetchColumn();
+        ob_start();
+        $resPublic = $controller->redirect(new \Core\Request(), 'public-qr');
+        $outPublic = ob_get_clean();
+        if ($resPublic instanceof \Core\Response) {
+            $outPublic .= $resPublic->getBody();
+        }
+        $statsCountAfter = (int)$pdo->query("SELECT COUNT(*) FROM `{$prefix}stats`")->fetchColumn();
+
+        self::assert(
+            strpos($outPublic, 'Catalogue Vanille Export') !== false &&
+            strpos($outPublic, 'Commandez votre vanille') !== false,
+            "Confidentiality 6: Valid public link serves OpenGraph tags to legitimate preview bot",
+            $results
+        );
+        self::assert(
+            $statsCountBefore === $statsCountAfter,
+            "Confidentiality 7: Legitimate social crawler did NOT increment stats table (0 fake clicks)",
+            $results
+        );
+    }
 }
+

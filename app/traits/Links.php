@@ -47,7 +47,7 @@ trait Links {
 
         $current = str_replace(["http://", "https://"], "", $current);
 
-		$current = idn_to_utf8($current);
+		$current = !empty($current) ? idn_to_utf8($current) : '';
 
 		$driver = '';
 		try {
