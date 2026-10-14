@@ -159,25 +159,49 @@ class Phase4ModernizationTest {
     public static function testLocalPluginManagerAndSecurityPolicy(&$results): void {
         echo "Running Phase4ModernizationTest::testLocalPluginManagerAndSecurityPolicy...\n";
 
-        // 1. Inspect installed local plugins
-        $plugins = PluginManager::listInstalledPlugins();
-        self::assert(is_array($plugins), "listInstalledPlugins returns array of local plugins", $results);
-        self::assert(isset($plugins['helloworld']), "helloworld plugin discovered in storage/plugins", $results);
-        self::assert($plugins['helloworld']['name'] === 'Hello World', "helloworld metadata accurately parsed from config.json", $results);
+        // Create an isolated temporary plugins directory for test hermeticity (does not rely on gitignored storage/plugins)
+        $tmpPluginsDir = sys_get_temp_dir() . '/test_plugins_' . uniqid();
+        $mockPluginDir = $tmpPluginsDir . '/sampleplugin';
+        mkdir($mockPluginDir, 0777, true);
 
-        // 2. Validate valid local plugin
-        $valOk = PluginManager::validatePlugin('helloworld');
-        self::assert($valOk['valid'] === true, "Valid local plugin passes security validation", $results);
+        file_put_contents($mockPluginDir . '/config.json', json_encode([
+            'name'        => 'Sample Test Plugin',
+            'version'     => '1.0.0',
+            'author'      => 'Codex QA',
+            'description' => 'Hermetic isolated test plugin',
+        ]));
+        file_put_contents($mockPluginDir . '/plugin.php', '<?php // Mock plugin entry');
 
-        // 3. Path traversal attack attempt blocked
-        $valAttack = PluginManager::validatePlugin('../../../etc');
-        self::assert($valAttack['valid'] === false, "Path traversal attempt is strictly blocked", $results);
+        PluginManager::setPluginsPath($tmpPluginsDir);
 
-        // 4. Remote installation prohibition
-        self::assert(
-            PluginManager::isRemoteInstallationAllowed() === false,
-            "Security Policy: Remote unverified plugin installations are strictly prohibited",
-            $results
-        );
+        try {
+            // 1. Inspect installed local plugins
+            $plugins = PluginManager::listInstalledPlugins();
+            self::assert(is_array($plugins), "listInstalledPlugins returns array of local plugins", $results);
+            self::assert(isset($plugins['sampleplugin']), "sampleplugin discovered in isolated test directory", $results);
+            self::assert($plugins['sampleplugin']['name'] === 'Sample Test Plugin', "sampleplugin metadata accurately parsed from config.json", $results);
+
+            // 2. Validate valid local plugin
+            $valOk = PluginManager::validatePlugin('sampleplugin');
+            self::assert($valOk['valid'] === true, "Valid local plugin passes security validation", $results);
+
+            // 3. Path traversal attack attempt blocked
+            $valAttack = PluginManager::validatePlugin('../../../etc');
+            self::assert($valAttack['valid'] === false, "Path traversal attempt is strictly blocked", $results);
+
+            // 4. Remote installation prohibition
+            self::assert(
+                PluginManager::isRemoteInstallationAllowed() === false,
+                "Security Policy: Remote unverified plugin installations are strictly prohibited",
+                $results
+            );
+        } finally {
+            // Clean up temporary files
+            @unlink($mockPluginDir . '/config.json');
+            @unlink($mockPluginDir . '/plugin.php');
+            @rmdir($mockPluginDir);
+            @rmdir($tmpPluginsDir);
+            PluginManager::setPluginsPath(null);
+        }
     }
 }

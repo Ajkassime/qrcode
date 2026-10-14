@@ -15,10 +15,22 @@ use Core\Helper;
 
 class PluginManager {
 
+    private static ?string $customPath = null;
+
+    /**
+     * Override plugins path (for isolated testing)
+     */
+    public static function setPluginsPath(?string $path): void {
+        self::$customPath = $path;
+    }
+
     /**
      * Get path to plugins directory
      */
     public static function getPluginsPath(): string {
+        if (self::$customPath !== null) {
+            return self::$customPath;
+        }
         return defined('PLUGIN') ? PLUGIN : (STORAGE . '/plugins');
     }
 
