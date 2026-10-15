@@ -1122,20 +1122,20 @@ class Phase1ModernizationTest {
     public static function testWhatsAppUrlSanitizationAndEndToEndScanRedirect(&$results) {
         echo "Running Phase1ModernizationTest::testWhatsAppUrlSanitizationAndEndToEndScanRedirect...\n";
 
-        // 1. QR::typeWhatsapp generation sanitization
+        // 1. QR::typeWhatsapp generation sanitization (official wa.me format)
         $waData1 = ['phone' => '+261 34 65 831 94', 'body' => ''];
         $generatedUrl1 = \Helpers\QR::typeWhatsapp($waData1);
         self::assert(
-            $generatedUrl1 === 'https://api.whatsapp.com/send?phone=261346583194',
-            "QR::typeWhatsapp sanitizes phone (+ and spaces stripped) and omits empty &text= parameter",
+            $generatedUrl1 === 'https://wa.me/261346583194',
+            "QR::typeWhatsapp formats phone as canonical https://wa.me/NUMERO_INTERNATIONAL and omits empty text parameter",
             $results
         );
 
         $waData2 = ['phone' => '+261-34-65-831-94', 'body' => 'Bonjour à tous !'];
         $generatedUrl2 = \Helpers\QR::typeWhatsapp($waData2);
         self::assert(
-            $generatedUrl2 === 'https://api.whatsapp.com/send?phone=261346583194&text=Bonjour+%C3%A0+tous+%21',
-            "QR::typeWhatsapp formats text parameter with clean urlencoding",
+            $generatedUrl2 === 'https://wa.me/261346583194?text=Bonjour+%C3%A0+tous+%21',
+            "QR::typeWhatsapp formats prefilled message with valid encoding without altering content",
             $results
         );
 
@@ -1143,7 +1143,7 @@ class Phase1ModernizationTest {
         $waData3 = ['phone' => '00261346583194', 'body' => 'Test'];
         $generatedUrl3 = \Helpers\QR::typeWhatsapp($waData3);
         self::assert(
-            $generatedUrl3 === 'https://api.whatsapp.com/send?phone=261346583194&text=Test',
+            $generatedUrl3 === 'https://wa.me/261346583194?text=Test',
             "QR::typeWhatsapp strips international leading 00 to match E.164 digits-only",
             $results
         );
@@ -1151,12 +1151,25 @@ class Phase1ModernizationTest {
         // String input compatibility
         $generatedUrlString = \Helpers\QR::typeWhatsapp('+261 34 65 831 94');
         self::assert(
-            $generatedUrlString === 'https://api.whatsapp.com/send?phone=261346583194',
+            $generatedUrlString === 'https://wa.me/261346583194',
             "QR::typeWhatsapp handles string phone argument gracefully",
             $results
         );
 
-        // Invalid phone number rejection
+        // Non-guessing rule: Local number starting with 0 is rejected with informative error (no silent country code guessing)
+        $localZeroThrown = false;
+        try {
+            \Helpers\QR::typeWhatsapp(['phone' => '0346583194', 'body' => 'Test']);
+        } catch (\Exception $e) {
+            $localZeroThrown = true;
+        }
+        self::assert(
+            $localZeroThrown,
+            "Non-guessing policy: Local Malagasy number starting with single 0 (034...) is rejected to prevent guessing country code",
+            $results
+        );
+
+        // Invalid phone number rejection (no digits or too short)
         $invalidThrown = false;
         try {
             \Helpers\QR::typeWhatsapp(['phone' => 'invalid-no-digits', 'body' => 'hello']);
@@ -1169,20 +1182,40 @@ class Phase1ModernizationTest {
             $results
         );
 
+        $tooShortThrown = false;
+        try {
+            \Helpers\QR::typeWhatsapp(['phone' => '12345', 'body' => 'hello']);
+        } catch (\Exception $e) {
+            $tooShortThrown = true;
+        }
+        self::assert(
+            $tooShortThrown,
+            "QR::typeWhatsapp throws Exception when phone number is too short (< 8 digits)",
+            $results
+        );
+
         // 2. InAppBreakout::normalizeWhatsAppUrl on various historical formats
-        // Exact historical row from innovstu_qr.sql / live packaging
+        // Exact historical row from innovstu_qr.sql / live packaging: api.whatsapp.com -> wa.me
         $historicalUrl = 'https://api.whatsapp.com/send?phone=+261346583194&text=';
         $normalizedHistorical = \Helpers\InAppBreakout::normalizeWhatsAppUrl($historicalUrl);
         self::assert(
-            $normalizedHistorical === 'https://api.whatsapp.com/send?phone=261346583194',
-            "normalizeWhatsAppUrl heals historical 'phone=+261...&text=' to clean 'phone=261...' without empty text",
+            $normalizedHistorical === 'https://wa.me/261346583194',
+            "normalizeWhatsAppUrl heals historical 'api.whatsapp.com/send?phone=+261...&text=' to canonical 'https://wa.me/261346583194'",
+            $results
+        );
+
+        // Historical link with message preserves message content perfectly
+        $historicalWithMsg = 'https://api.whatsapp.com/send?phone=+261346583194&text=Commande%20vanille%20%23123';
+        self::assert(
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($historicalWithMsg) === 'https://wa.me/261346583194?text=Commande+vanille+%23123',
+            "normalizeWhatsAppUrl preserves message content without altering special characters",
             $results
         );
 
         // URL encoded plus
         $encodedPlusUrl = 'https://api.whatsapp.com/send/?phone=%2B261346583194&text=';
         self::assert(
-            \Helpers\InAppBreakout::normalizeWhatsAppUrl($encodedPlusUrl) === 'https://api.whatsapp.com/send/?phone=261346583194',
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($encodedPlusUrl) === 'https://wa.me/261346583194',
             "normalizeWhatsAppUrl handles %2B encoded plus cleanly",
             $results
         );
@@ -1200,6 +1233,14 @@ class Phase1ModernizationTest {
         self::assert(
             \Helpers\InAppBreakout::normalizeWhatsAppUrl($nativeWa) === 'whatsapp://send?phone=261346583194',
             "normalizeWhatsAppUrl strips plus from whatsapp:// protocol URL",
+            $results
+        );
+
+        // Non-guessing policy on existing local number: does NOT invent 261
+        $localExisting = 'https://api.whatsapp.com/send?phone=0346583194';
+        self::assert(
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($localExisting) === 'https://wa.me/0346583194',
+            "Non-guessing policy: existing number starting with 0 is preserved as digits-only without silently injecting country code",
             $results
         );
 
@@ -1233,8 +1274,8 @@ class Phase1ModernizationTest {
         $locationHeader = $lastHeaders['location'] ?? $lastHeaders['Location'] ?? null;
 
         self::assert(
-            $lastStatus === 301 && $locationHeader === 'https://api.whatsapp.com/send?phone=261346583194',
-            "End-to-End Scan: iPhone Safari scanning historical QR code redirects via HTTP 301 to clean 'https://api.whatsapp.com/send?phone=261346583194'",
+            $lastStatus === 301 && $locationHeader === 'https://wa.me/261346583194',
+            "End-to-End Scan: iPhone Safari scanning historical QR code redirects via HTTP 301 to canonical 'https://wa.me/261346583194'",
             $results
         );
 
