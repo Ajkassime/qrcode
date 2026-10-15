@@ -140,11 +140,13 @@ final class Response {
 	 */
 	private function setHeaders(array $headers){
 
+		self::$lastHeaders = [];
 		foreach ($headers as $name => $value) {
 			
 			if(empty($name) && empty($value)) continue;
 
 			$name = Helper::clean($name);
+			self::$lastHeaders[$name] = $value;
 
 			if(strtolower($name) == "content-type" && in_array($value, $this->actionableTypes)) $this->type = "json";						
 
@@ -207,6 +209,12 @@ final class Response {
 	private static int $lastStatusCode = 200;
 
 	/**
+	 * Last HTTP headers set via Response
+	 * @var array
+	 */
+	private static array $lastHeaders = [];
+
+	/**
 	 * Instance HTTP status code
 	 * @var int
 	 */
@@ -257,6 +265,13 @@ final class Response {
 	 */
 	public static function lastStatusCode(): int {
 		return self::$lastStatusCode;
+	}
+
+	/**
+	 * Get last headers set on any Response instance
+	 */
+	public static function lastHeaders(): array {
+		return self::$lastHeaders;
 	}
 	/**
 	 * Set Response

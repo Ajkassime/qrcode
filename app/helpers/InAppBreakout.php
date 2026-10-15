@@ -200,6 +200,105 @@ class InAppBreakout {
     }
 
     /**
+     * Normalize WhatsApp URLs to prevent API rejection on mobile browsers.
+     * Ensures phone numbers are digits-only (E.164 without '+' or leading zeros)
+     * and query string has valid encoding with empty text parameters removed.
+     *
+     * @param string|null $url
+     * @return string
+     */
+    public static function normalizeWhatsAppUrl(?string $url): string {
+        if (empty($url) || !self::isWhatsAppTarget($url)) {
+            return (string) $url;
+        }
+
+        // 1. WhatsApp native protocol: whatsapp://send?phone=...&text=...
+        if (strpos($url, 'whatsapp://') === 0) {
+            $parsed = parse_url($url);
+            $query = [];
+            if (!empty($parsed['query'])) {
+                parse_str($parsed['query'], $query);
+            }
+            if (isset($query['phone'])) {
+                $cleanPhone = preg_replace('/[^0-9]/', '', (string) $query['phone']);
+                $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
+                if (!empty($cleanPhone)) {
+                    $query['phone'] = $cleanPhone;
+                } else {
+                    unset($query['phone']);
+                }
+            }
+            if (isset($query['text']) && trim((string) $query['text']) === '') {
+                unset($query['text']);
+            }
+            $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
+            $host = $parsed['host'] ?? 'send';
+            $path = $parsed['path'] ?? '';
+            return 'whatsapp://' . $host . $path . $newQuery;
+        }
+
+        $parsed = parse_url($url);
+        if (!$parsed || empty($parsed['host'])) {
+            return $url;
+        }
+
+        $scheme = $parsed['scheme'] ?? 'https';
+        $host = strtolower($parsed['host']);
+        $path = $parsed['path'] ?? '';
+        $query = [];
+        if (!empty($parsed['query'])) {
+            parse_str($parsed['query'], $query);
+        }
+
+        // 2. Chat invite link (chat.whatsapp.com/...)
+        if ($host === 'chat.whatsapp.com') {
+            return $url;
+        }
+
+        // 3. wa.me links: https://wa.me/<phone>?text=...
+        if ($host === 'wa.me' || $host === 'www.wa.me') {
+            $rawPhone = ltrim($path, '/');
+            $rawPhone = preg_replace('/^phone=/', '', $rawPhone);
+            if (empty($rawPhone) && !empty($query['phone'])) {
+                $rawPhone = (string) $query['phone'];
+                unset($query['phone']);
+            }
+
+            $cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
+            $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
+
+            if (isset($query['text']) && trim((string) $query['text']) === '') {
+                unset($query['text']);
+            }
+
+            $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
+            return "{$scheme}://{$host}/{$cleanPhone}{$newQuery}";
+        }
+
+        // 4. api.whatsapp.com links: https://api.whatsapp.com/send?phone=+261...&text=...
+        if ($host === 'api.whatsapp.com') {
+            if (isset($query['phone'])) {
+                $cleanPhone = preg_replace('/[^0-9]/', '', (string) $query['phone']);
+                $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
+                if (!empty($cleanPhone)) {
+                    $query['phone'] = $cleanPhone;
+                } else {
+                    unset($query['phone']);
+                }
+            }
+            if (isset($query['text']) && trim((string) $query['text']) === '') {
+                unset($query['text']);
+            }
+
+            $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
+            $cleanPath = !empty($path) ? $path : '/send';
+            return "{$scheme}://{$host}{$cleanPath}{$newQuery}";
+        }
+
+        return $url;
+    }
+
+    /**
      * Generate Android Chrome intent URL
      * Ensures URL fragment or special characters cannot alter the Intent structure.
      *

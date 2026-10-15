@@ -330,13 +330,38 @@ class QR {
      */
     public static function typeWhatsapp($data){
 
-        $data = (array) $data;
+        $phone = '';
+        $body = '';
 
-        if(!is_numeric(str_replace('+', '', $data['phone']))) throw new \Exception(e('Invalid phone number. Please try again.'));
+        if(is_array($data)) {
+            $phone = (string) ($data['phone'] ?? '');
+            $body = (string) ($data['body'] ?? '');
+        } elseif(is_object($data)) {
+            $phone = (string) ($data->phone ?? '');
+            $body = (string) ($data->body ?? '');
+        } else {
+            $phone = (string) $data;
+        }
 
-        if(strlen($data['body']) > 3500) throw new \Exception(e('Text is too long.'));
+        $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
+        $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
 
-        return 'https://api.whatsapp.com/send?'.(is_array($data) ? "phone={$data['phone']}&text={$data['body']}": 'phone='.$data);
+        if(empty($cleanPhone)) throw new \Exception(e('Invalid phone number. Please try again.'));
+
+        if(strlen($body) > 3500) throw new \Exception(e('Text is too long.'));
+
+        $params = ['phone' => $cleanPhone];
+        if(trim($body) !== '') {
+            $params['text'] = $body;
+        }
+
+        $url = 'https://api.whatsapp.com/send?' . http_build_query($params);
+
+        if(class_exists('\Helpers\InAppBreakout')) {
+            return \Helpers\InAppBreakout::normalizeWhatsAppUrl($url);
+        }
+
+        return $url;
     }
     /**
      * Generate Vcard

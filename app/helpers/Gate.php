@@ -122,7 +122,9 @@ class Gate {
         $request->session("geoconsent_nonce_{$url->id}", $consentNonce);
         $request->unset("geoconsent_used_{$url->id}");
 
-        $targetUrl = $url->url;
+        $targetUrl = class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)
+            ? \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url)
+            : $url->url;
         $geocoderInfo = class_exists('\Helpers\GeoLocation')
             ? \Helpers\GeoLocation::getReverseGeocoderProviderInfo()
             : ['enabled' => false, 'provider' => 'none', 'provider_name' => null, 'sends_external' => false];

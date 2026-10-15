@@ -355,6 +355,12 @@ class Link {
 			}
 		}
 
+		// Automatic WhatsApp URL normalization: strips '+' and non-digits from phone, cleans query strings
+		// Guarantees zero error for historical QR codes (e.g. phone=+261...) scanned on iPhone/Safari
+		if (class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)) {
+			$url->url = \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url);
+		}
+
 		// Optional Campaign Geo Consent Check (disabled by default, 0ms penalty if not enabled)
 		// Automated crawlers and preview bots are never prompted for browser geolocation consent
 		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}") && (empty($botAnalysis['is_bot']) || !$botProtectionEnabled)){
@@ -1246,7 +1252,10 @@ class Link {
 
 		// 6. If visitor declined/skipped coordinates, redirect cleanly without modifying stats
 		if (!array_key_exists('latitude', $body) && !array_key_exists('longitude', $body)) {
-			return (new Response(['success' => true, 'redirect' => $url->url]))->json();
+			$target = class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)
+				? \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url)
+				: $url->url;
+			return (new Response(['success' => true, 'redirect' => $target]))->json();
 		}
 
 		$lat = isset($body['latitude']) ? filter_var($body['latitude'], FILTER_VALIDATE_FLOAT) : false;
@@ -1275,12 +1284,15 @@ class Link {
 		// If the external reverse geocoder is unavailable/disabled or coordinate resolution returned unknown,
 		// preserve the existing MaxMind IP geolocation on $stat rather than overwriting with null, and redirect cleanly.
 		if (empty($resolved['country']) || ($resolved['location_level'] ?? 'unknown') === 'unknown') {
+			$target = class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)
+				? \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url)
+				: $url->url;
 			return (new Response([
 				'success'        => true,
 				'geo_updated'    => false,
 				'location_level' => 'unknown',
 				'missing_reason' => $resolved['missing_reason'] ?? 'reverse_geocoder_unavailable',
-				'redirect'       => $url->url,
+				'redirect'       => $target,
 			]))->json();
 		}
 
@@ -1297,11 +1309,15 @@ class Link {
 
 		$stat->save();
 
+		$target = class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)
+			? \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url)
+			: $url->url;
+
 		return (new Response([
 			'success'        => true,
 			'geo_updated'    => true,
 			'location_level' => $resolved['location_level'] ?? $resolved['precision'] ?? 'country',
-			'redirect'       => $url->url,
+			'redirect'       => $target,
 		]))->json();
 	}
 }
