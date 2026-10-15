@@ -172,6 +172,27 @@ final class Request {
 		return $this->_HTTPrequest->{$variable};
 	}
 	/**
+	 * Check variable magically
+	 * @author GemPixel <https://gempixel.com>
+	 * @version 1.0
+	 * @param   string $variable
+	 * @return  bool
+	 */
+	public function __isset($variable){
+		return isset($this->_HTTPrequest->{$variable});
+	}
+	/**
+	 * Check if variable exists
+	 *
+	 * @author GemPixel <https://gempixel.com>
+	 * @version 1.0
+	 * @param  string $variable
+	 * @return bool
+	 */
+	public function has($variable){
+		return isset($this->_HTTPrequest->{$variable});
+	}
+	/**
 	 * Get variable
 	 *
 	 * @author GemPixel <https://gempixel.com> 

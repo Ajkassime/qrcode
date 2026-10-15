@@ -117,8 +117,10 @@ class Link {
 			$options = is_array($url->options) ? $url->options : json_decode((string) $url->options, true);
 		}
 
-		// Bot Protection configuration for this link (defaults to true)
-		$botProtectionEnabled = !isset($options['bot_protection']) || !empty($options['bot_protection']);
+		// Bot Protection configuration for this link
+		// For legacy links without an explicit 'bot_protection' option, defaults to false
+		// to avoid introducing new HTTP 403 blocks on historical QR codes without explicit decision.
+		$botProtectionEnabled = !empty($options['bot_protection']);
 
 		if ($botProtectionEnabled && ($botAnalysis['type'] ?? '') === 'bad_bot') {
 			return \Helpers\BotProtection::handleBadBot();
@@ -194,7 +196,7 @@ class Link {
 		// Get User info
 		if($user){
 			// If membership expired, switch to free
-			if($user->pro && time() > strtotime($user->expiration)){
+			if($user->pro && !empty($user->expiration) && time() > strtotime($user->expiration)){
 				$user->pro = 0;
 				$user->trial = 0;
 				$user->save();
@@ -776,7 +778,7 @@ class Link {
 		$url->pixels = $url->pixels && $url->pixels != "null" ? explode(',', $url->pixels) : [];
 		$url->deeplink = $options['deeplink'] ?? [];
 		$url->inapp_breakout = !empty($options['inapp_breakout']);
-		$url->bot_protection = !isset($options['bot_protection']) || !empty($options['bot_protection']);
+		$url->bot_protection = !empty($options['bot_protection']);
 
 		$channels = [];
 

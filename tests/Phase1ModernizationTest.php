@@ -23,6 +23,7 @@ class Phase1ModernizationTest {
         self::testSearchEngineBotRespectsNoStatsAndNoGeocoding($results);
         self::testBreakoutParameterNotForwardedToDestinationUrl($results);
         self::testBotProtectionExplicitToggleOption($results);
+        self::testFullConfigurationLifecycleAndLegacyCompatibility($results);
     }
 
     private static function assert($condition, $message, &$results) {
@@ -477,6 +478,8 @@ class Phase1ModernizationTest {
         $pdo->exec("DROP TABLE IF EXISTS `{$prefix}url`");
         $pdo->exec("DROP TABLE IF EXISTS `{$prefix}stats`");
         $pdo->exec("DROP TABLE IF EXISTS `{$prefix}reports`");
+        $pdo->exec("DROP TABLE IF EXISTS `{$prefix}domains`");
+        $pdo->exec("DROP TABLE IF EXISTS `{$prefix}tochannels`");
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}url` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -484,9 +487,17 @@ class Phase1ModernizationTest {
             `alias` TEXT,
             `custom` TEXT,
             `url` TEXT,
-            `options` TEXT,
+            `description` TEXT DEFAULT NULL,
+            `location` TEXT DEFAULT NULL,
+            `devices` TEXT DEFAULT NULL,
+            `options` TEXT DEFAULT NULL,
             `pass` TEXT DEFAULT NULL,
             `expiry` TEXT DEFAULT NULL,
+            `pixels` TEXT DEFAULT NULL,
+            `parameters` TEXT DEFAULT NULL,
+            `type` TEXT DEFAULT 'direct',
+            `bundle` INTEGER DEFAULT NULL,
+            `public` INTEGER DEFAULT 1,
             `click` INTEGER DEFAULT 0,
             `uniqueclick` INTEGER DEFAULT 0,
             `status` INTEGER DEFAULT 1,
@@ -523,32 +534,54 @@ class Phase1ModernizationTest {
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `bannedlink` TEXT DEFAULT ''
         )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}domains` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `domain` TEXT,
+            `userid` INTEGER,
+            `status` INTEGER
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}tochannels` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `type` TEXT,
+            `itemid` INTEGER,
+            `channelid` INTEGER
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}user` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `banned` INTEGER DEFAULT 0,
+            `pro` INTEGER DEFAULT 1,
+            `trial` INTEGER DEFAULT 0,
+            `expiration` TEXT DEFAULT NULL,
+            `media` INTEGER DEFAULT 1,
+            `admin` INTEGER DEFAULT 1
+        )");
+        $pdo->exec("INSERT INTO `{$prefix}user` (`id`, `banned`, `pro`, `admin`) VALUES (1, 0, 1, 1)");
 
-        // Insert test URLs
+        // Insert test URLs with bot_protection enabled
         // 1. Password-protected link
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `pass`, `meta_title`, `status`) VALUES
-            (101, 'pass-protected', 'https://internal-confidential.example.com/vault', 'secret_key_123', 'Secret Financial Document', 1)");
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `pass`, `meta_title`, `options`, `status`) VALUES
+            (101, 'pass-protected', 'https://internal-confidential.example.com/vault', 'secret_key_123', 'Secret Financial Document', '{\"bot_protection\":true}', 1)");
 
         // 2. Expired by date link
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `expiry`, `meta_title`, `status`) VALUES
-            (102, 'expired-link', 'https://campaign.example.com/ended', '2020-01-01 00:00:00', 'Ended Summer 2020 Promo', 1)");
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `expiry`, `meta_title`, `options`, `status`) VALUES
+            (102, 'expired-link', 'https://campaign.example.com/ended', '2020-01-01 00:00:00', 'Ended Summer 2020 Promo', '{\"bot_protection\":true}', 1)");
 
         // 3. Expired by click limit
         $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `options`, `click`, `meta_title`, `status`) VALUES
-            (103, 'click-limit', 'https://limited.example.com/tickets', '{\"clicklimit\":5}', 5, 'VIP Concert Ticket Giveaway', 1)");
+            (103, 'click-limit', 'https://limited.example.com/tickets', '{\"clicklimit\":5,\"bot_protection\":true}', 5, 'VIP Concert Ticket Giveaway', 1)");
 
         // 4. Inactive / disabled link
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
-            (104, 'inactive-link', 'https://inactive.example.com/page', 'Hidden Draft', 0)");
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `options`, `status`) VALUES
+            (104, 'inactive-link', 'https://inactive.example.com/page', 'Hidden Draft', '{\"bot_protection\":true}', 0)");
 
         // 5. Banned link in reports
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
-            (105, 'banned-link', 'https://phishing-domain.example.com/login', 'Phishing Page', 1)");
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `options`, `status`) VALUES
+            (105, 'banned-link', 'https://phishing-domain.example.com/login', 'Phishing Page', '{\"bot_protection\":true}', 1)");
         $pdo->exec("INSERT INTO `{$prefix}reports` (`id`, `bannedlink`) VALUES (1, 'phishing-domain.example.com')");
 
         // 6. Public valid accessible link
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `meta_description`, `status`) VALUES
-            (106, 'public-qr', 'https://wa.me/261340000000?text=Bonjour', 'Catalogue Vanille Export', 'Commandez votre vanille certifiée.', 1)");
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `meta_description`, `options`, `status`) VALUES
+            (106, 'public-qr', 'https://wa.me/261340000000?text=Bonjour', 'Catalogue Vanille Export', 'Commandez votre vanille certifiée.', '{\"bot_protection\":true}', 1)");
 
         require_once ROOT . '/app/controllers/LinkController.php';
         $controller = new \Link();
@@ -717,9 +750,9 @@ class Phase1ModernizationTest {
         $pdo = \Core\DB::get_db();
         $prefix = defined('DBprefix') ? DBprefix : '';
 
-        // Reset and insert a fresh link for search engine test
-        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `status`) VALUES
-            (110, 'search-bot-test', 'https://example.mg/destination-bot', 'Page Publique Pour Moteurs', 1)");
+        // Reset and insert a fresh link for search engine test with bot_protection enabled
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `meta_title`, `options`, `status`) VALUES
+            (110, 'search-bot-test', 'https://example.mg/destination-bot', 'Page Publique Pour Moteurs', '{\"bot_protection\":true}', 1)");
 
         require_once ROOT . '/app/controllers/LinkController.php';
         $controller = new \Link();
@@ -818,6 +851,264 @@ class Phase1ModernizationTest {
         self::assert(
             \Core\Response::lastStatusCode() !== 403,
             "Link with bot_protection=false in options bypasses 403 scanner blocking (option respected)",
+            $results
+        );
+    }
+
+    /**
+     * Test 15: Full Lifecycle: Form -> HTTP Request -> createLink/updateLink -> SQL DB -> Form Reload -> Redirect Controller
+     * Covering activation, deactivation, reactivation, legacy links without options, breakout toggle, and historical QR safety.
+     */
+    public static function testFullConfigurationLifecycleAndLegacyCompatibility(&$results) {
+        echo "Running Phase1ModernizationTest::testFullConfigurationLifecycleAndLegacyCompatibility...\n";
+
+        $pdo = \Core\DB::get_db();
+        $prefix = defined('DBprefix') ? DBprefix : '';
+
+        // 1. Verify Core\Request dynamic property check using __isset() and has()
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_REQUEST = ['bot_protection' => '1', 'inapp_breakout' => '1'];
+        $reqTest = new \Core\Request();
+        self::assert(
+            isset($reqTest->bot_protection) && $reqTest->has('bot_protection') && $reqTest->bot_protection === '1',
+            "Core\\Request correctly supports isset(\$request->bot_protection) via __isset() and has()",
+            $results
+        );
+
+        $_REQUEST = [];
+        $reqEmpty = new \Core\Request();
+        self::assert(
+            !isset($reqEmpty->bot_protection) && !$reqEmpty->has('bot_protection') && $reqEmpty->bot_protection === null,
+            "Core\\Request returns false for isset() when property is not present in request",
+            $results
+        );
+
+        // Mock User for Links trait operations
+        $user = new class {
+            public $id = 1;
+            public $admin = 1;
+            public $planid = 1;
+            public $pro = 1;
+            public function pro() { return true; }
+            public function rID() { return 1; }
+            public function has($perm) { return true; }
+            public function plan($key) { return null; }
+        };
+
+        require_once ROOT . '/app/controllers/LinkController.php';
+        $controller = new \Link();
+
+        // 2. LIFECYCLE STEP A: CREATE LINK with bot_protection=1 & inapp_breakout=1
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_REQUEST = [
+            'url' => 'https://example.mg/boutique-lifecycle',
+            'custom' => 'lifecycle-test-1',
+            'inapp_breakout' => '1',
+            'bot_protection' => '1'
+        ];
+        $reqCreate = new \Core\Request();
+        $created = $controller->createLink($reqCreate, $user);
+        $linkId = (int) $created['id'];
+
+        $createdRow = $pdo->query("SELECT * FROM `{$prefix}url` WHERE id = {$linkId}")->fetch(\PDO::FETCH_ASSOC);
+        $createdOptions = json_decode($createdRow['options'] ?? '{}', true);
+
+        self::assert(
+            !empty($createdOptions['bot_protection']) && !empty($createdOptions['inapp_breakout']),
+            "Lifecycle A: createLink() successfully records bot_protection=true and inapp_breakout=true in SQL database",
+            $results
+        );
+
+        // Form reload simulation for Step A
+        $editBotProtA = !empty($createdOptions['bot_protection']);
+        $editBreakoutA = !empty($createdOptions['inapp_breakout']);
+        self::assert(
+            $editBotProtA === true && $editBreakoutA === true,
+            "Lifecycle A: Edit form reload reflects bot_protection=true and inapp_breakout=true (switches checked)",
+            $results
+        );
+
+        // Redirection behavior for Step A (Enabled state)
+        // A.1: Bad bot gets blocked with HTTP 403
+        $_SERVER['REQUEST_URI'] = '/lifecycle-test-1';
+        $_SERVER['HTTP_HOST'] = 'localhost';
+        $_SERVER['HTTP_USER_AGENT'] = 'sqlmap/1.6#stable (https://sqlmap.org)';
+        $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'lifecycle-test-1');
+        $outBotA = ob_get_clean();
+        self::assert(
+            \Core\Response::lastStatusCode() === 403,
+            "Lifecycle A: Bad bot request to link with bot_protection=true receives HTTP 403 Access Denied",
+            $results
+        );
+
+        // A.2: In-app browser triggers breakout
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/21E219 Instagram 324.0.0.18.109';
+        ob_start();
+        $resBreakoutA = $controller->redirect(new \Core\Request(), 'lifecycle-test-1');
+        $outBreakoutA = ob_get_clean();
+        if ($resBreakoutA instanceof \Core\Response) {
+            $outBreakoutA .= $resBreakoutA->getBody();
+        }
+        self::assert(
+            strpos($outBreakoutA, 'Ouverture du lien') !== false || strpos($outBreakoutA, 'openInChrome') !== false,
+            "Lifecycle A: Instagram in-app visitor triggers breakout view for inapp_breakout=true link",
+            $results
+        );
+
+        // 3. LIFECYCLE STEP B: UPDATE LINK to DEACTIVATE (form transmitting 0 for both checkboxes)
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_REQUEST = [
+            'url' => 'https://example.mg/boutique-lifecycle',
+            'custom' => 'lifecycle-test-1',
+            'inapp_breakout' => '0',
+            'bot_protection' => '0'
+        ];
+        $linkObj = \Core\DB::url()->where('id', $linkId)->first();
+        $reqUpdateDeact = new \Core\Request();
+        $controller->updateLink($reqUpdateDeact, $linkObj, $user);
+
+        $deactRow = $pdo->query("SELECT * FROM `{$prefix}url` WHERE id = {$linkId}")->fetch(\PDO::FETCH_ASSOC);
+        $deactOptions = json_decode($deactRow['options'] ?? '{}', true);
+
+        self::assert(
+            isset($deactOptions['bot_protection']) && $deactOptions['bot_protection'] === false && empty($deactOptions['inapp_breakout']),
+            "Lifecycle B: updateLink() deactivates bot_protection=false and removes inapp_breakout in SQL database",
+            $results
+        );
+
+        // Form reload simulation for Step B
+        $editBotProtB = !empty($deactOptions['bot_protection']);
+        $editBreakoutB = !empty($deactOptions['inapp_breakout']);
+        self::assert(
+            $editBotProtB === false && $editBreakoutB === false,
+            "Lifecycle B: Edit form reload reflects bot_protection=false and inapp_breakout=false (switches unchecked)",
+            $results
+        );
+
+        // Redirection behavior for Step B (Deactivated state)
+        // B.1: Bad bot is NOT blocked with 403
+        $_SERVER['HTTP_USER_AGENT'] = 'sqlmap/1.6#stable (https://sqlmap.org)';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'lifecycle-test-1');
+        $outBotB = ob_get_clean();
+        self::assert(
+            \Core\Response::lastStatusCode() !== 403,
+            "Lifecycle B: Bad bot is NOT blocked with 403 when bot_protection is deactivated",
+            $results
+        );
+
+        // B.2: In-app browser does NOT trigger breakout
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/21E219 Instagram 324.0.0.18.109';
+        ob_start();
+        $resBreakoutB = $controller->redirect(new \Core\Request(), 'lifecycle-test-1');
+        $outBreakoutB = ob_get_clean();
+        if ($resBreakoutB instanceof \Core\Response) {
+            $outBreakoutB .= $resBreakoutB->getBody();
+        }
+        self::assert(
+            strpos($outBreakoutB, 'Ouverture du lien') === false && strpos($outBreakoutB, 'openInChrome') === false,
+            "Lifecycle B: In-app browser does NOT trigger breakout when inapp_breakout is deactivated",
+            $results
+        );
+
+        // 4. LIFECYCLE STEP C: UPDATE LINK to REACTIVATE
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_REQUEST = [
+            'url' => 'https://example.mg/boutique-lifecycle',
+            'custom' => 'lifecycle-test-1',
+            'inapp_breakout' => '1',
+            'bot_protection' => '1'
+        ];
+        $linkObj2 = \Core\DB::url()->where('id', $linkId)->first();
+        $reqUpdateReact = new \Core\Request();
+        $controller->updateLink($reqUpdateReact, $linkObj2, $user);
+
+        $reactRow = $pdo->query("SELECT * FROM `{$prefix}url` WHERE id = {$linkId}")->fetch(\PDO::FETCH_ASSOC);
+        $reactOptions = json_decode($reactRow['options'] ?? '{}', true);
+
+        self::assert(
+            !empty($reactOptions['bot_protection']) && !empty($reactOptions['inapp_breakout']),
+            "Lifecycle C: updateLink() reactivates bot_protection=true and inapp_breakout=true",
+            $results
+        );
+
+        // 5. LIFECYCLE STEP D: HISTORICAL LINK (without recorded options)
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `options`, `status`) VALUES
+            (140, 'historical-qr-packaging', 'https://example.mg/produits/vanille-bio', NULL, 1)");
+
+        $histRow = $pdo->query("SELECT * FROM `{$prefix}url` WHERE id = 140")->fetch(\PDO::FETCH_ASSOC);
+        $histOptions = json_decode($histRow['options'] ?? '{}', true);
+
+        // Form reload simulation for historical link
+        $editBotProtHist = !empty($histOptions['bot_protection']);
+        $editBreakoutHist = !empty($histOptions['inapp_breakout']);
+        self::assert(
+            $editBotProtHist === false && $editBreakoutHist === false,
+            "Lifecycle D: Historical link without options loads in edit form with both switches unchecked",
+            $results
+        );
+
+        // Redirection behavior on historical link
+        // D.1: Bad bot does NOT get blocked with 403 (no new 403 on historical links)
+        $_SERVER['REQUEST_URI'] = '/historical-qr-packaging';
+        $_SERVER['HTTP_USER_AGENT'] = 'sqlmap/1.6#stable (https://sqlmap.org)';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'historical-qr-packaging');
+        $outBotHist = ob_get_clean();
+        self::assert(
+            \Core\Response::lastStatusCode() !== 403,
+            "Lifecycle D: Historical QR code without options never returns HTTP 403 to scanners (no unexpected blocking)",
+            $results
+        );
+
+        // D.2: In-app browser does NOT breakout on historical link
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/21E219 Instagram 324.0.0.18.109';
+        ob_start();
+        $resHistBreakout = $controller->redirect(new \Core\Request(), 'historical-qr-packaging');
+        $outHistBreakout = ob_get_clean();
+        if ($resHistBreakout instanceof \Core\Response) {
+            $outHistBreakout .= $resHistBreakout->getBody();
+        }
+        self::assert(
+            strpos($outHistBreakout, 'Ouverture du lien') === false && strpos($outHistBreakout, 'openInChrome') === false,
+            "Lifecycle D: Historical QR code without options does not trigger breakout (direct historical redirect)",
+            $results
+        );
+
+        // 6. INDISPENSABLE SECURITY CHECKS INDEPENDENT OF BOT PROTECTION
+        // Inactive link with bot_protection=false must still be rejected (cannot bypass basic security)
+        $pdo->exec("INSERT INTO `{$prefix}url` (`id`, `alias`, `url`, `options`, `status`) VALUES
+            (141, 'inactive-sec-check', 'https://example.mg/secret', '{\"bot_protection\":false}', 0)");
+        $_SERVER['REQUEST_URI'] = '/inactive-sec-check';
+        ob_start();
+        $controller->redirect(new \Core\Request(), 'inactive-sec-check');
+        $outInactiveSec = ob_get_clean();
+        self::assert(
+            strpos($outInactiveSec, 'inactive') !== false || strpos($outInactiveSec, 'disabled') !== false || \Core\Response::lastStatusCode() !== 200,
+            "Indispensable Security: Inactive link is rejected regardless of bot_protection setting",
+            $results
+        );
+
+        // 7. HTML INTERFACE VERIFICATION: unique IDs and hidden inputs in edit.php & shortenermodal.php
+        $editHtml = file_get_contents(STORAGE . '/themes/default/user/edit.php');
+        self::assert(
+            strpos($editHtml, 'id="inapp_breakout_block"') !== false &&
+            strpos($editHtml, 'id="bot_protection_block"') !== false &&
+            strpos($editHtml, '<input type="hidden" name="inapp_breakout" value="0">') !== false &&
+            strpos($editHtml, '<input type="hidden" name="bot_protection" value="0">') !== false,
+            "HTML UI: edit.php uses unique container IDs (inapp_breakout_block, bot_protection_block) and explicit hidden 0 inputs",
+            $results
+        );
+
+        $modalHtml = file_get_contents(STORAGE . '/themes/default/partials/shortenermodal.php');
+        self::assert(
+            strpos($modalHtml, '<input type="hidden" name="inapp_breakout" value="0">') !== false &&
+            strpos($modalHtml, '<input type="hidden" name="bot_protection" value="0">') !== false &&
+            strpos($modalHtml, 'id="qsinapp_breakout"') !== false &&
+            strpos($modalHtml, 'id="qsbot_protection"') !== false,
+            "HTML UI: shortenermodal.php uses explicit hidden 0 inputs and unique element IDs",
             $results
         );
     }

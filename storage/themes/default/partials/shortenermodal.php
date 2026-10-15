@@ -110,6 +110,7 @@
                         <div class="row">
                             <div class="col-md-6 mt-3">
                                 <div class="form-check form-switch mt-2">
+                                    <input type="hidden" name="inapp_breakout" value="0">
                                     <input class="form-check-input" type="checkbox" id="qsinapp_breakout" name="inapp_breakout" value="1">
                                     <label class="form-check-label fw-bold" for="qsinapp_breakout"><?php ee('In-App Breakout') ?></label>
                                     <p class="form-text mb-0"><?php ee('Ouvrir dans le navigateur externe') ?></p>
@@ -117,6 +118,7 @@
                             </div>
                             <div class="col-md-6 mt-3">
                                 <div class="form-check form-switch mt-2">
+                                    <input type="hidden" name="bot_protection" value="0">
                                     <input class="form-check-input" type="checkbox" id="qsbot_protection" name="bot_protection" value="1" checked>
                                     <label class="form-check-label fw-bold" for="qsbot_protection"><?php ee('Protection Anti-Bots') ?></label>
                                     <p class="form-text mb-0"><?php ee('Filtrer les robots & faux clics') ?></p>
