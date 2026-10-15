@@ -148,7 +148,9 @@ final class Response {
 
 			if(strtolower($name) == "content-type" && in_array($value, $this->actionableTypes)) $this->type = "json";						
 
-			header("{$name}:{$value}");
+			if(!headers_sent()){
+				header("{$name}:{$value}");
+			}
 		}
 
 		return $this;
@@ -160,7 +162,9 @@ final class Response {
 	 * @return  [type] [description]
 	 */
 	public function json(){
-		header("Content-Type: application/json");
+		if(!headers_sent()){
+			header("Content-Type: application/json");
+		}
 		return print(json_encode($this->body));
 	}
 
@@ -177,7 +181,9 @@ final class Response {
 		
 		$name = Helper::clean($name);
 
-		header("{$name}:{$value}");
+		if(!headers_sent()){
+			header("{$name}:{$value}");
+		}
 
 		return $this;
 	}
@@ -230,6 +236,20 @@ final class Response {
 	 */
 	public function getStatusCode(): int {
 		return $this->statusCode;
+	}
+
+	/**
+	 * Alias for getStatusCode
+	 */
+	public function getCode(): int {
+		return $this->statusCode;
+	}
+
+	/**
+	 * Get response body
+	 */
+	public function getBody(){
+		return $this->body;
 	}
 
 	/**

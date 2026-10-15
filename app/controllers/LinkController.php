@@ -97,11 +97,33 @@ class Link {
      */
     public function redirect(Request $request, string $alias){
 
+		// Module 1B: Anti-Bot & Scraper Protection
+		$botAnalysis = class_exists('\Helpers\BotProtection')
+			? \Helpers\BotProtection::analyze($request)
+			: ['type' => 'human', 'is_preview' => false, 'count_stat' => true, 'allow_geocoding' => true];
+
 		// @group Plugin: Pre-redirect checks or complete override
 		Plugin::dispatch('link.preredirect', $alias);
 
 		if(!$url = $this->getURL($request, $alias)){
+			if (($botAnalysis['type'] ?? '') === 'bad_bot') {
+				return \Helpers\BotProtection::handleBadBot();
+			}
 			return $this->notFound($request);
+		}
+
+		$options = null;
+		if(!empty($url->options)) {
+			$options = is_array($url->options) ? $url->options : json_decode((string) $url->options, true);
+		}
+
+		// Bot Protection configuration for this link
+		// For legacy links without an explicit 'bot_protection' option, defaults to false
+		// to avoid introducing new HTTP 403 blocks on historical QR codes without explicit decision.
+		$botProtectionEnabled = !empty($options['bot_protection']);
+
+		if ($botProtectionEnabled && ($botAnalysis['type'] ?? '') === 'bad_bot') {
+			return \Helpers\BotProtection::handleBadBot();
 		}
 
 		// Plugin: Take control of redirect
@@ -121,8 +143,12 @@ class Link {
 		// Check if URL is disabled
 		if(!$url->status) return Gate::inactive();
 
-		// Check blacklist domain
+		// Check blacklist domain and banned links
 		if(!$url->qrid && !$url->profileid && ($this->domainBlacklisted($url->url) || $this->wordBlacklisted($url->url))) return Gate::disabled();
+
+		if(DB::reports()->whereRaw('bannedlink LIKE ?', ['%'.$url->url.'%'])->first()){
+			return Gate::disabled();
+		}
 
 		// Check with Google Web Risk
 		if(!$url->qrid && !$url->profileid && !$this->safe($url->url)) {
@@ -170,7 +196,7 @@ class Link {
 		// Get User info
 		if($user){
 			// If membership expired, switch to free
-			if($user->pro && time() > strtotime($user->expiration)){
+			if($user->pro && !empty($user->expiration) && time() > strtotime($user->expiration)){
 				$user->pro = 0;
 				$user->trial = 0;
 				$user->save();
@@ -210,8 +236,18 @@ class Link {
 			}
 		}
 
-		// Update Stats
-		$this->updateStats($request, $url, $user);
+		// Module 1B: Serve clean OpenGraph metadata for legitimate social preview crawlers (WhatsApp, Facebook, Twitter, Telegram)
+		// Crucial confidentiality guarantee: Delivered ONLY after password, expiration, status and security gates have passed.
+		// Returns before updateStats() so no human scan count and no paid geocoding are consumed.
+		if ($botProtectionEnabled && !empty($botAnalysis['is_preview'])) {
+			return \Helpers\BotProtection::handleSocialPreview($url);
+		}
+
+		// Update Stats: ONLY for human visitors or when botAnalysis explicitly allows counting stats
+		// Legitimate search engines (Googlebot, Bingbot) and preview crawlers NEVER increment commercial scan counts
+		if (!empty($botAnalysis['count_stat']) || !$botProtectionEnabled) {
+			$this->updateStats($request, $url, $user);
+		}
 
 		if($options && isset($options['rotators'])) {
 			$rotators = [];
@@ -239,8 +275,8 @@ class Link {
 
 		}
 
-		// Check if URL is geo targeted
-		if(!empty($url->location) && config("geotarget")){
+		// Check if URL is geo targeted (only if geocoding is permitted for this client)
+		if(!empty($url->location) && config("geotarget") && (!empty($botAnalysis['allow_geocoding']) || !$botProtectionEnabled)){
 
 			$geo = $request->country();
 
@@ -308,18 +344,26 @@ class Link {
 			}
 		}
 
-		// Forward queries if any
-		if($request->query()){
-			if(strpos($url->url, "?")){
-				$url->url = $url->url."&".http_build_query($request->query());
-			}else{
-				$url->url = $url->url."?".http_build_query($request->query());
+		// Forward queries if any (excluding internal parameters such as _breakout)
+		if($queries = $request->query()){
+			if(is_array($queries)){
+				unset($queries['_breakout']);
+			}
+			if(!empty($queries)){
+				$separator = (strpos($url->url, "?") !== false) ? "&" : "?";
+				$url->url = $url->url . $separator . http_build_query($queries);
 			}
 		}
 
 		// Optional Campaign Geo Consent Check (disabled by default, 0ms penalty if not enabled)
-		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}")){
+		// Automated crawlers and preview bots are never prompted for browser geolocation consent
+		if($options && !empty($options['geoconsent']) && !$request->session("geoconsent_{$url->id}") && (empty($botAnalysis['is_bot']) || !$botProtectionEnabled)){
 			return Gate::consentLocation($url, $user);
+		}
+
+		// Module 1A: In-App Browser Breakout (Optional per-link, disabled by default)
+		if((empty($botAnalysis['is_bot']) || !$botProtectionEnabled) && class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::shouldBreakout($url, $request)){
+			return \Helpers\InAppBreakout::renderBreakoutPage($url, $request);
 		}
 
 		if($url->qrid){
@@ -733,6 +777,8 @@ class Link {
 		$url->parameters = $url->parameters && $url->parameters != "null" ? json_decode($url->parameters, true) : [];
 		$url->pixels = $url->pixels && $url->pixels != "null" ? explode(',', $url->pixels) : [];
 		$url->deeplink = $options['deeplink'] ?? [];
+		$url->inapp_breakout = !empty($options['inapp_breakout']);
+		$url->bot_protection = !empty($options['bot_protection']);
 
 		$channels = [];
 

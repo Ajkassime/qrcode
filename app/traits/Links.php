@@ -47,7 +47,7 @@ trait Links {
 
         $current = str_replace(["http://", "https://"], "", $current);
 
-		$current = idn_to_utf8($current);
+		$current = !empty($current) ? idn_to_utf8($current) : '';
 
 		$driver = '';
 		try {
@@ -305,6 +305,33 @@ trait Links {
             $options['deeplink']['enabled'] = true;
             $options['deeplink']['google'] = clean($request->deeplink['google']);
             $options['deeplink']['apple'] = clean($request->deeplink['apple']);
+        }
+
+        if(isset($request->inapp_breakout) && $request->inapp_breakout !== ''){
+            if(!empty($request->inapp_breakout)){
+                $options['inapp_breakout'] = true;
+            } else {
+                unset($options['inapp_breakout']);
+            }
+        } elseif(!empty($request->inapp_breakout)){
+            $options['inapp_breakout'] = true;
+        }
+
+        $botProtectionSubmitted = false;
+        if(is_object($request)){
+            if(method_exists($request, 'has')){
+                $botProtectionSubmitted = $request->has('bot_protection');
+            } elseif(isset($request->bot_protection)){
+                $botProtectionSubmitted = true;
+            } else {
+                $botProtectionSubmitted = ($request->bot_protection !== null);
+            }
+        } elseif(is_array($request)){
+            $botProtectionSubmitted = array_key_exists('bot_protection', $request);
+        }
+
+        if($botProtectionSubmitted && $request->bot_protection !== '' && $request->bot_protection !== null){
+            $options['bot_protection'] = !empty($request->bot_protection);
         }
 
         // @group Plugin
@@ -732,10 +759,39 @@ trait Links {
             $options['expirationredirect'] = $request->expirationredirect && Helper::isURL($request->expirationredirect) ? Helper::clean($request->expirationredirect, 3) : null;
         }
 
-        if($user->has('deeplink') && $request->deeplink['enabled']){
+        if($user->has('deeplink') && !empty($request->deeplink) && !empty($request->deeplink['enabled'])){
             $options['deeplink']['enabled'] = true;
             $options['deeplink']['google'] = clean($request->deeplink['google']);
             $options['deeplink']['apple'] = clean($request->deeplink['apple']);
+        }
+
+        if(isset($request->inapp_breakout) && $request->inapp_breakout !== ''){
+            if(!empty($request->inapp_breakout)){
+                $options['inapp_breakout'] = true;
+            } else {
+                unset($options['inapp_breakout']);
+            }
+        } elseif(!empty($request->inapp_breakout)){
+            $options['inapp_breakout'] = true;
+        } else {
+            unset($options['inapp_breakout']);
+        }
+
+        $botProtectionSubmitted = false;
+        if(is_object($request)){
+            if(method_exists($request, 'has')){
+                $botProtectionSubmitted = $request->has('bot_protection');
+            } elseif(isset($request->bot_protection)){
+                $botProtectionSubmitted = true;
+            } else {
+                $botProtectionSubmitted = ($request->bot_protection !== null);
+            }
+        } elseif(is_array($request)){
+            $botProtectionSubmitted = array_key_exists('bot_protection', $request);
+        }
+
+        if($botProtectionSubmitted && $request->bot_protection !== '' && $request->bot_protection !== null){
+            $options['bot_protection'] = !empty($request->bot_protection);
         }
 
         // Generate formatted list of parameters

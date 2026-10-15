@@ -137,6 +137,31 @@
                             </div>
                         </div>
                     <?php endif ?>
+                    <div class="mt-4 border p-3 rounded-3" id="inapp_breakout_block">
+                        <div class="form-group d-flex align-items-center">
+                            <div>
+                                <label for="inapp_breakout" class="form-label h4"><?php ee('In-App Browser Breakout') ?></label>
+                                <p class="form-text mb-0"><?php ee('Ouvre automatiquement le lien dans le navigateur externe (Safari / Chrome) lorsqu\'il est ouvert depuis Instagram, Facebook ou TikTok.') ?></p>
+                            </div>
+                            <div class="form-check form-switch ms-auto">
+                                <input type="hidden" name="inapp_breakout" value="0">
+                                <input class="form-check-input" type="checkbox" data-binary="true" id="inapp_breakout" name="inapp_breakout" value="1" <?php echo !empty($url->inapp_breakout) ? 'checked':'' ?>>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 border p-3 rounded-3" id="bot_protection_block">
+                        <div class="form-group d-flex align-items-center">
+                            <div>
+                                <label for="bot_protection" class="form-label h4"><?php ee('Protection Anti-Bots & Scrapers') ?></label>
+                                <p class="form-text mb-0"><?php ee('Bloque les robots malveillants et préserve les statistiques réelles sans comptabiliser les aperçus sociaux comme des scans.') ?></p>
+                            </div>
+                            <div class="form-check form-switch ms-auto">
+                                <input type="hidden" name="bot_protection" value="0">
+                                <input class="form-check-input" type="checkbox" data-binary="true" id="bot_protection" name="bot_protection" value="1" <?php echo !empty($url->bot_protection) ? 'checked':'' ?>>
+                            </div>
+                        </div>
+                    </div>
                     <?php if(config("devicetarget") && \Core\Auth::user()->has("device") !== false):?>                        
                         <div class="mt-4 border p-3 rounded-3" id="device">
                             <div class="d-flex">

@@ -32,3 +32,4 @@ config.php
 /.vscode
 /.idea
 workspace.code-workspace
+/main 8.0.6/
