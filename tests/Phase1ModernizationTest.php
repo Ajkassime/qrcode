@@ -547,6 +547,17 @@ class Phase1ModernizationTest {
             `itemid` INTEGER,
             `channelid` INTEGER
         )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}qrs` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `userid` INTEGER DEFAULT 1,
+            `alias` TEXT,
+            `name` TEXT,
+            `filename` TEXT,
+            `urlid` INTEGER,
+            `data` TEXT,
+            `status` INTEGER DEFAULT 1,
+            `created_at` TEXT
+        )");
         $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}user` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `banned` INTEGER DEFAULT 0,
@@ -1252,8 +1263,29 @@ class Phase1ModernizationTest {
             $results
         );
 
+        // Test WhatsApp Gianna exact scenario (+261320507031 with empty text)
+        $giannaData = ['phone' => '+261320507031', 'body' => ''];
+        self::assert(
+            \Helpers\QR::typeWhatsapp($giannaData) === 'https://wa.me/261320507031',
+            "QR::typeWhatsapp formats Gianna number (+261320507031) to canonical 'https://wa.me/261320507031'",
+            $results
+        );
+
+        // Test WhatsApp with complex message (emojis, accents, &, ?, #, spaces)
+        $complexMsg = 'Commande #42: Café & Vanille ? ☕🚀';
+        $complexData = ['phone' => '+261 32 05 070 31', 'body' => $complexMsg];
+        $complexUrl = \Helpers\QR::typeWhatsapp($complexData);
+        self::assert(
+            strpos($complexUrl, 'https://wa.me/261320507031?text=') === 0 &&
+            strpos($complexUrl, '%2342') !== false &&
+            strpos($complexUrl, '%26') !== false &&
+            strpos($complexUrl, '%3F') !== false,
+            "QR::typeWhatsapp correctly encodes complex message with emojis, &, ?, # and accents without data corruption",
+            $results
+        );
+
         // 3. End-to-end QR scan redirection test
-        // Simulate scanning a historical QR code on iPhone/Safari
+        // Simulate scanning a historical standard link on iPhone/Safari (without qrid)
         $pdo = \Core\DB::get_db();
         $prefix = defined('DBprefix') ? DBprefix : '';
         $pdo->exec("INSERT INTO `{$prefix}url` (url, alias, status, click, options) VALUES ('https://api.whatsapp.com/send?phone=+261346583194&text=', 'wa-scan-test', 1, 0, NULL)");
@@ -1275,12 +1307,47 @@ class Phase1ModernizationTest {
 
         self::assert(
             $lastStatus === 301 && $locationHeader === 'https://wa.me/261346583194',
-            "End-to-End Scan: iPhone Safari scanning historical QR code redirects via HTTP 301 to canonical 'https://wa.me/261346583194'",
+            "End-to-End Scan (Standard Link): iPhone Safari scanning historical link redirects via HTTP 301 to canonical 'https://wa.me/261346583194'",
             $results
         );
 
-        // Clean up test link
+        // Clean up standard test link
         $pdo->exec("DELETE FROM `{$prefix}url` WHERE id = {$linkId}");
+
+        // 4. End-to-end Dynamic QR scan redirection test (with qrid, matching alias 88d51c)
+        // Dynamic QR codes must redirect with HTTP 302 Temporary Redirect and no-cache headers
+        // so mobile browsers do not cache the destination permanently in local disk cache.
+        $pdo->exec("INSERT INTO `{$prefix}qrs` (alias, name, data, status) VALUES ('gianna-qr', 'WhatsApp Gianna', '{\"type\":\"whatsapp\",\"data\":{\"phone\":\"+261320507031\",\"body\":\"\"}}', 1)");
+        $qrId = $pdo->lastInsertId();
+
+        $pdo->exec("INSERT INTO `{$prefix}url` (url, alias, status, click, options, qrid) VALUES ('https://api.whatsapp.com/send?phone=+261320507031&text=', '88d51c-test', 1, 0, NULL, {$qrId})");
+        $dynLinkId = $pdo->lastInsertId();
+
+        $_SERVER['REQUEST_URI'] = '/88d51c-test';
+        ob_start();
+        $controller->redirect($mockRequest, '88d51c-test');
+        ob_get_clean();
+
+        $dynStatus = \Core\Response::lastStatusCode();
+        $dynHeaders = \Core\Response::lastHeaders();
+        $dynLocation = $dynHeaders['location'] ?? $dynHeaders['Location'] ?? null;
+        $dynCacheControl = $dynHeaders['cache-control'] ?? $dynHeaders['Cache-Control'] ?? '';
+
+        self::assert(
+            $dynStatus === 302 && $dynLocation === 'https://wa.me/261320507031',
+            "End-to-End Dynamic QR Scan (Alias 88d51c): iPhone Safari scanning dynamic WhatsApp QR redirects via HTTP 302 to canonical 'https://wa.me/261320507031'",
+            $results
+        );
+
+        self::assert(
+            strpos($dynCacheControl, 'no-store') !== false && strpos($dynCacheControl, 'no-cache') !== false,
+            "Anti-Cache Policy: Dynamic QR redirect sends strict Cache-Control: no-store, no-cache to protect against Safari 301 permanent disk caching",
+            $results
+        );
+
+        // Clean up dynamic test link and QR
+        $pdo->exec("DELETE FROM `{$prefix}url` WHERE id = {$dynLinkId}");
+        $pdo->exec("DELETE FROM `{$prefix}qrs` WHERE id = {$qrId}");
     }
 }
 

@@ -192,7 +192,24 @@ class Gate {
                         </html>', 200))->send();
 		}        
 
-        return (new Response(null, 301, ['location' => $url->url]))->send();
+        // Normalize WhatsApp destination URL if necessary to ensure clean redirection
+        if (class_exists('\Helpers\InAppBreakout') && \Helpers\InAppBreakout::isWhatsAppTarget($url->url)) {
+            $url->url = \Helpers\InAppBreakout::normalizeWhatsAppUrl($url->url);
+        }
+
+        // For dynamic QR codes (with qrid), use HTTP 302 Found with anti-caching headers so
+        // mobile browsers (especially Safari iOS) do not freeze redirect destinations permanently,
+        // and scan clicks remain accurately recorded on every scan.
+        $isDynamicQR = !empty($url->qrid);
+        $code = $isDynamicQR ? 302 : 301;
+        $headers = ['location' => $url->url];
+        if ($isDynamicQR) {
+            $headers['cache-control'] = 'no-store, no-cache, must-revalidate, max-age=0';
+            $headers['pragma'] = 'no-cache';
+            $headers['expires'] = '0';
+        }
+
+        return (new Response(null, $code, $headers))->send();
     }
     /**
      * Frame method
