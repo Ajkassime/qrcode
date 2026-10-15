@@ -255,7 +255,8 @@ class InAppBreakout {
             return $url;
         }
 
-        // 3. wa.me links: https://wa.me/<phone>?text=...
+        // 3. Extract phone and text from wa.me or api.whatsapp.com
+        $rawPhone = '';
         if ($host === 'wa.me' || $host === 'www.wa.me') {
             $rawPhone = ltrim($path, '/');
             $rawPhone = preg_replace('/^phone=/', '', $rawPhone);
@@ -263,39 +264,32 @@ class InAppBreakout {
                 $rawPhone = (string) $query['phone'];
                 unset($query['phone']);
             }
-
-            $cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
-            $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
-
-            if (isset($query['text']) && trim((string) $query['text']) === '') {
-                unset($query['text']);
+        } elseif ($host === 'api.whatsapp.com') {
+            if (!empty($query['phone'])) {
+                $rawPhone = (string) $query['phone'];
+                unset($query['phone']);
             }
-
-            $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
-            return "{$scheme}://{$host}/{$cleanPhone}{$newQuery}";
         }
 
-        // 4. api.whatsapp.com links: https://api.whatsapp.com/send?phone=+261...&text=...
-        if ($host === 'api.whatsapp.com') {
-            if (isset($query['phone'])) {
-                $cleanPhone = preg_replace('/[^0-9]/', '', (string) $query['phone']);
-                $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
-                if (!empty($cleanPhone)) {
-                    $query['phone'] = $cleanPhone;
-                } else {
-                    unset($query['phone']);
-                }
-            }
-            if (isset($query['text']) && trim((string) $query['text']) === '') {
-                unset($query['text']);
-            }
-
-            $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
-            $cleanPath = !empty($path) ? $path : '/send';
-            return "{$scheme}://{$host}{$cleanPath}{$newQuery}";
+        $cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
+        if (strpos($cleanPhone, '00') === 0) {
+            $cleanPhone = substr($cleanPhone, 2);
         }
 
-        return $url;
+        // If no phone could be identified, leave URL untouched
+        if (empty($cleanPhone)) {
+            return $url;
+        }
+
+        // Remove empty text parameter if present
+        if (isset($query['text']) && trim((string) $query['text']) === '') {
+            unset($query['text']);
+        }
+
+        // Canonical official format preferred by Meta and iOS:
+        // https://wa.me/NUMERO_INTERNATIONAL?text=MESSAGE_ENCODE
+        $newQuery = !empty($query) ? '?' . http_build_query($query) : '';
+        return 'https://wa.me/' . $cleanPhone . $newQuery;
     }
 
     /**

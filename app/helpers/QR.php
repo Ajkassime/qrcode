@@ -344,24 +344,29 @@ class QR {
         }
 
         $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-        $cleanPhone = preg_replace('/^00/', '', $cleanPhone);
+        if(strpos($cleanPhone, '00') === 0) {
+            $cleanPhone = substr($cleanPhone, 2);
+        }
 
-        if(empty($cleanPhone)) throw new \Exception(e('Invalid phone number. Please try again.'));
+        // Validate international phone number:
+        // Must be non-empty, between 8 and 15 digits (ITU-T E.164 standard).
+        // Must NOT start with 0: a single leading 0 indicates a local number missing its country code.
+        // We do not silently guess or inject country code.
+        if(empty($cleanPhone) || strlen($cleanPhone) < 8 || strlen($cleanPhone) > 15 || strpos($cleanPhone, '0') === 0) {
+            throw new \Exception(e('Please enter a valid international phone number including country code (e.g. +26134... or 26134...). Local numbers starting with 0 are not supported by WhatsApp.'));
+        }
 
         if(strlen($body) > 3500) throw new \Exception(e('Text is too long.'));
 
-        $params = ['phone' => $cleanPhone];
+        // Official Meta WhatsApp click-to-chat format:
+        // https://wa.me/NUMERO_INTERNATIONAL?text=MESSAGE_ENCODE
+        $params = [];
         if(trim($body) !== '') {
             $params['text'] = $body;
         }
+        $query = !empty($params) ? '?' . http_build_query($params) : '';
 
-        $url = 'https://api.whatsapp.com/send?' . http_build_query($params);
-
-        if(class_exists('\Helpers\InAppBreakout')) {
-            return \Helpers\InAppBreakout::normalizeWhatsAppUrl($url);
-        }
-
-        return $url;
+        return 'https://wa.me/' . $cleanPhone . $query;
     }
     /**
      * Generate Vcard

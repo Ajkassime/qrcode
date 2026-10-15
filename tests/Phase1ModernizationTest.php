@@ -547,6 +547,17 @@ class Phase1ModernizationTest {
             `itemid` INTEGER,
             `channelid` INTEGER
         )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}qrs` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+            `userid` INTEGER DEFAULT 1,
+            `alias` TEXT,
+            `name` TEXT,
+            `filename` TEXT,
+            `urlid` INTEGER,
+            `data` TEXT,
+            `status` INTEGER DEFAULT 1,
+            `created_at` TEXT
+        )");
         $pdo->exec("CREATE TABLE IF NOT EXISTS `{$prefix}user` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT,
             `banned` INTEGER DEFAULT 0,
@@ -1122,20 +1133,20 @@ class Phase1ModernizationTest {
     public static function testWhatsAppUrlSanitizationAndEndToEndScanRedirect(&$results) {
         echo "Running Phase1ModernizationTest::testWhatsAppUrlSanitizationAndEndToEndScanRedirect...\n";
 
-        // 1. QR::typeWhatsapp generation sanitization
+        // 1. QR::typeWhatsapp generation sanitization (official wa.me format)
         $waData1 = ['phone' => '+261 34 65 831 94', 'body' => ''];
         $generatedUrl1 = \Helpers\QR::typeWhatsapp($waData1);
         self::assert(
-            $generatedUrl1 === 'https://api.whatsapp.com/send?phone=261346583194',
-            "QR::typeWhatsapp sanitizes phone (+ and spaces stripped) and omits empty &text= parameter",
+            $generatedUrl1 === 'https://wa.me/261346583194',
+            "QR::typeWhatsapp formats phone as canonical https://wa.me/NUMERO_INTERNATIONAL and omits empty text parameter",
             $results
         );
 
         $waData2 = ['phone' => '+261-34-65-831-94', 'body' => 'Bonjour à tous !'];
         $generatedUrl2 = \Helpers\QR::typeWhatsapp($waData2);
         self::assert(
-            $generatedUrl2 === 'https://api.whatsapp.com/send?phone=261346583194&text=Bonjour+%C3%A0+tous+%21',
-            "QR::typeWhatsapp formats text parameter with clean urlencoding",
+            $generatedUrl2 === 'https://wa.me/261346583194?text=Bonjour+%C3%A0+tous+%21',
+            "QR::typeWhatsapp formats prefilled message with valid encoding without altering content",
             $results
         );
 
@@ -1143,7 +1154,7 @@ class Phase1ModernizationTest {
         $waData3 = ['phone' => '00261346583194', 'body' => 'Test'];
         $generatedUrl3 = \Helpers\QR::typeWhatsapp($waData3);
         self::assert(
-            $generatedUrl3 === 'https://api.whatsapp.com/send?phone=261346583194&text=Test',
+            $generatedUrl3 === 'https://wa.me/261346583194?text=Test',
             "QR::typeWhatsapp strips international leading 00 to match E.164 digits-only",
             $results
         );
@@ -1151,12 +1162,25 @@ class Phase1ModernizationTest {
         // String input compatibility
         $generatedUrlString = \Helpers\QR::typeWhatsapp('+261 34 65 831 94');
         self::assert(
-            $generatedUrlString === 'https://api.whatsapp.com/send?phone=261346583194',
+            $generatedUrlString === 'https://wa.me/261346583194',
             "QR::typeWhatsapp handles string phone argument gracefully",
             $results
         );
 
-        // Invalid phone number rejection
+        // Non-guessing rule: Local number starting with 0 is rejected with informative error (no silent country code guessing)
+        $localZeroThrown = false;
+        try {
+            \Helpers\QR::typeWhatsapp(['phone' => '0346583194', 'body' => 'Test']);
+        } catch (\Exception $e) {
+            $localZeroThrown = true;
+        }
+        self::assert(
+            $localZeroThrown,
+            "Non-guessing policy: Local Malagasy number starting with single 0 (034...) is rejected to prevent guessing country code",
+            $results
+        );
+
+        // Invalid phone number rejection (no digits or too short)
         $invalidThrown = false;
         try {
             \Helpers\QR::typeWhatsapp(['phone' => 'invalid-no-digits', 'body' => 'hello']);
@@ -1169,20 +1193,40 @@ class Phase1ModernizationTest {
             $results
         );
 
+        $tooShortThrown = false;
+        try {
+            \Helpers\QR::typeWhatsapp(['phone' => '12345', 'body' => 'hello']);
+        } catch (\Exception $e) {
+            $tooShortThrown = true;
+        }
+        self::assert(
+            $tooShortThrown,
+            "QR::typeWhatsapp throws Exception when phone number is too short (< 8 digits)",
+            $results
+        );
+
         // 2. InAppBreakout::normalizeWhatsAppUrl on various historical formats
-        // Exact historical row from innovstu_qr.sql / live packaging
+        // Exact historical row from innovstu_qr.sql / live packaging: api.whatsapp.com -> wa.me
         $historicalUrl = 'https://api.whatsapp.com/send?phone=+261346583194&text=';
         $normalizedHistorical = \Helpers\InAppBreakout::normalizeWhatsAppUrl($historicalUrl);
         self::assert(
-            $normalizedHistorical === 'https://api.whatsapp.com/send?phone=261346583194',
-            "normalizeWhatsAppUrl heals historical 'phone=+261...&text=' to clean 'phone=261...' without empty text",
+            $normalizedHistorical === 'https://wa.me/261346583194',
+            "normalizeWhatsAppUrl heals historical 'api.whatsapp.com/send?phone=+261...&text=' to canonical 'https://wa.me/261346583194'",
+            $results
+        );
+
+        // Historical link with message preserves message content perfectly
+        $historicalWithMsg = 'https://api.whatsapp.com/send?phone=+261346583194&text=Commande%20vanille%20%23123';
+        self::assert(
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($historicalWithMsg) === 'https://wa.me/261346583194?text=Commande+vanille+%23123',
+            "normalizeWhatsAppUrl preserves message content without altering special characters",
             $results
         );
 
         // URL encoded plus
         $encodedPlusUrl = 'https://api.whatsapp.com/send/?phone=%2B261346583194&text=';
         self::assert(
-            \Helpers\InAppBreakout::normalizeWhatsAppUrl($encodedPlusUrl) === 'https://api.whatsapp.com/send/?phone=261346583194',
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($encodedPlusUrl) === 'https://wa.me/261346583194',
             "normalizeWhatsAppUrl handles %2B encoded plus cleanly",
             $results
         );
@@ -1203,6 +1247,14 @@ class Phase1ModernizationTest {
             $results
         );
 
+        // Non-guessing policy on existing local number: does NOT invent 261
+        $localExisting = 'https://api.whatsapp.com/send?phone=0346583194';
+        self::assert(
+            \Helpers\InAppBreakout::normalizeWhatsAppUrl($localExisting) === 'https://wa.me/0346583194',
+            "Non-guessing policy: existing number starting with 0 is preserved as digits-only without silently injecting country code",
+            $results
+        );
+
         // Non-WhatsApp URL must NOT be touched
         $standardUrl = 'https://example.com/produits?id=123&phone=+261340000000';
         self::assert(
@@ -1211,8 +1263,29 @@ class Phase1ModernizationTest {
             $results
         );
 
+        // Test WhatsApp Gianna exact scenario (+261320507031 with empty text)
+        $giannaData = ['phone' => '+261320507031', 'body' => ''];
+        self::assert(
+            \Helpers\QR::typeWhatsapp($giannaData) === 'https://wa.me/261320507031',
+            "QR::typeWhatsapp formats Gianna number (+261320507031) to canonical 'https://wa.me/261320507031'",
+            $results
+        );
+
+        // Test WhatsApp with complex message (emojis, accents, &, ?, #, spaces)
+        $complexMsg = 'Commande #42: Café & Vanille ? ☕🚀';
+        $complexData = ['phone' => '+261 32 05 070 31', 'body' => $complexMsg];
+        $complexUrl = \Helpers\QR::typeWhatsapp($complexData);
+        self::assert(
+            strpos($complexUrl, 'https://wa.me/261320507031?text=') === 0 &&
+            strpos($complexUrl, '%2342') !== false &&
+            strpos($complexUrl, '%26') !== false &&
+            strpos($complexUrl, '%3F') !== false,
+            "QR::typeWhatsapp correctly encodes complex message with emojis, &, ?, # and accents without data corruption",
+            $results
+        );
+
         // 3. End-to-end QR scan redirection test
-        // Simulate scanning a historical QR code on iPhone/Safari
+        // Simulate scanning a historical standard link on iPhone/Safari (without qrid)
         $pdo = \Core\DB::get_db();
         $prefix = defined('DBprefix') ? DBprefix : '';
         $pdo->exec("INSERT INTO `{$prefix}url` (url, alias, status, click, options) VALUES ('https://api.whatsapp.com/send?phone=+261346583194&text=', 'wa-scan-test', 1, 0, NULL)");
@@ -1233,13 +1306,48 @@ class Phase1ModernizationTest {
         $locationHeader = $lastHeaders['location'] ?? $lastHeaders['Location'] ?? null;
 
         self::assert(
-            $lastStatus === 301 && $locationHeader === 'https://api.whatsapp.com/send?phone=261346583194',
-            "End-to-End Scan: iPhone Safari scanning historical QR code redirects via HTTP 301 to clean 'https://api.whatsapp.com/send?phone=261346583194'",
+            $lastStatus === 301 && $locationHeader === 'https://wa.me/261346583194',
+            "End-to-End Scan (Standard Link): iPhone Safari scanning historical link redirects via HTTP 301 to canonical 'https://wa.me/261346583194'",
             $results
         );
 
-        // Clean up test link
+        // Clean up standard test link
         $pdo->exec("DELETE FROM `{$prefix}url` WHERE id = {$linkId}");
+
+        // 4. End-to-end Dynamic QR scan redirection test (with qrid, matching alias 88d51c)
+        // Dynamic QR codes must redirect with HTTP 302 Temporary Redirect and no-cache headers
+        // so mobile browsers do not cache the destination permanently in local disk cache.
+        $pdo->exec("INSERT INTO `{$prefix}qrs` (alias, name, data, status) VALUES ('gianna-qr', 'WhatsApp Gianna', '{\"type\":\"whatsapp\",\"data\":{\"phone\":\"+261320507031\",\"body\":\"\"}}', 1)");
+        $qrId = $pdo->lastInsertId();
+
+        $pdo->exec("INSERT INTO `{$prefix}url` (url, alias, status, click, options, qrid) VALUES ('https://api.whatsapp.com/send?phone=+261320507031&text=', '88d51c-test', 1, 0, NULL, {$qrId})");
+        $dynLinkId = $pdo->lastInsertId();
+
+        $_SERVER['REQUEST_URI'] = '/88d51c-test';
+        ob_start();
+        $controller->redirect($mockRequest, '88d51c-test');
+        ob_get_clean();
+
+        $dynStatus = \Core\Response::lastStatusCode();
+        $dynHeaders = \Core\Response::lastHeaders();
+        $dynLocation = $dynHeaders['location'] ?? $dynHeaders['Location'] ?? null;
+        $dynCacheControl = $dynHeaders['cache-control'] ?? $dynHeaders['Cache-Control'] ?? '';
+
+        self::assert(
+            $dynStatus === 302 && $dynLocation === 'https://wa.me/261320507031',
+            "End-to-End Dynamic QR Scan (Alias 88d51c): iPhone Safari scanning dynamic WhatsApp QR redirects via HTTP 302 to canonical 'https://wa.me/261320507031'",
+            $results
+        );
+
+        self::assert(
+            strpos($dynCacheControl, 'no-store') !== false && strpos($dynCacheControl, 'no-cache') !== false,
+            "Anti-Cache Policy: Dynamic QR redirect sends strict Cache-Control: no-store, no-cache to protect against Safari 301 permanent disk caching",
+            $results
+        );
+
+        // Clean up dynamic test link and QR
+        $pdo->exec("DELETE FROM `{$prefix}url` WHERE id = {$dynLinkId}");
+        $pdo->exec("DELETE FROM `{$prefix}qrs` WHERE id = {$qrId}");
     }
 }
 
